@@ -1,0 +1,13 @@
+beautifulsoup4
+chromadb
+langchain
+langchain-chroma
+langchain-ollama
+langchain-text-splitters
+langgraph
+ollama
+pypdf
+python-dotenv
+requests
+rich
+streamlit
