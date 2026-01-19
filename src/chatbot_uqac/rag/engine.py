@@ -6,7 +6,7 @@ import re
 from typing import Iterable
 
 from langchain_ollama import ChatOllama
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from chatbot_uqac.config import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL
@@ -64,15 +64,53 @@ def format_docs(docs: Iterable) -> str:
     return "\n\n".join(parts)
 
 
-class RagChat:
-    """Session-scoped RAG chat with short-term memory."""
+def summarize_history(history: list[BaseMessage], llm: ChatOllama) -> str:
+    """Generate a factual summary of the conversation history."""
+    if not history:
+        return ""
+    
+    # Build a prompt to summarize the conversation
+    conversation_text = []
+    for msg in history:
+        if isinstance(msg, HumanMessage):
+            conversation_text.append(f"User: {msg.content}")
+        elif isinstance(msg, AIMessage):
+            # Remove citations from the summary
+            content = re.sub(r"\[\d+(?:,\s*\d+)*\]", "", msg.content)
+            conversation_text.append(f"Assistant: {content}")
+    
+    summary_prompt = (
+        "You are summarizing a conversation. Create a concise, factual summary "
+        "of the following conversation. Do NOT include any sources, URLs, or citations. "
+        "Focus only on the key topics discussed and important information exchanged. "
+        "Keep it brief (2-3 sentences max).\n\n"
+        f"Conversation:\n{chr(10).join(conversation_text)}\n\n"
+        "Summary:"
+    )
+    
+    response = llm.invoke([HumanMessage(content=summary_prompt)])
+    summary = response.content if hasattr(response, "content") else str(response)
+    return summary.strip()
 
-    def __init__(self, retriever, llm: ChatOllama, max_history_messages: int = 5) -> None:
+
+class RagChat:
+    """Session-scoped RAG chat with short-term memory and periodic summarization."""
+
+    def __init__(
+        self, 
+        retriever, 
+        llm: ChatOllama, 
+        max_history_messages: int = 5,
+        summarize_threshold: int = 10,
+        keep_recent: int = 6
+    ) -> None:
         self.retriever = retriever
         self.llm = llm
         self.prompt = build_prompt()
         self.history: list[BaseMessage] = []
         self.max_history_messages = max_history_messages
+        self.summarize_threshold = summarize_threshold  # Threshold to trigger summarization
+        self.keep_recent = keep_recent  # Number of recent messages to keep (must be even)
 
     def _get_docs(self, question: str) -> list:
         # Support both old and new retriever interfaces.
@@ -96,10 +134,59 @@ class RagChat:
     def _append_history(self, question: str, answer: str) -> None:
         self.history.append(HumanMessage(content=question))
         self.history.append(AIMessage(content=answer))
-        # Keep a bounded history to avoid prompt bloat.
-        excess = len(self.history) - self.max_history_messages * 2
-        if excess > 0:
+        
+        # Print history status
+        print(f"\n{'='*70}")
+        print(f"📝 HISTORIQUE ACTUEL: {len(self.history)} messages")
+        print(f"{'='*70}")
+        for i, msg in enumerate(self.history):
+            msg_type = "👤 USER" if isinstance(msg, HumanMessage) else "🤖 ASSISTANT" if isinstance(msg, AIMessage) else "📋 RÉSUMÉ"
+            content = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
+            print(f"[{i}] {msg_type}: {content}")
+        print(f"{'='*70}\n")
+        
+        # Trigger summarization if history exceeds threshold
+        if len(self.history) > self.summarize_threshold:
+            print(f"⚠️  Seuil dépassé ({len(self.history)} > {self.summarize_threshold}), déclenchement du résumé...\n")
+            self._summarize_and_compress_history()
+        # Fallback: simple truncation if no summary was created
+        elif len(self.history) > self.max_history_messages * 2:
+            excess = len(self.history) - self.max_history_messages * 2
             self.history = self.history[excess:]
+    
+    def _summarize_and_compress_history(self) -> None:
+        """Summarize old messages and keep only recent ones + summary."""
+        # Keep only the most recent messages
+        recent_messages = self.history[-self.keep_recent:]
+        old_messages = self.history[:-self.keep_recent]
+        
+        # Check if we already have a summary at the beginning
+        existing_summary = None
+        if old_messages and isinstance(old_messages[0], SystemMessage):
+            existing_summary = old_messages[0]
+            old_messages = old_messages[1:]
+        
+        # Generate a summary of the old messages
+        if old_messages:
+            summary_text = summarize_history(old_messages, self.llm)
+            
+            # If there's an existing summary, combine them
+            if existing_summary:
+                combined_summary = (
+                    f"Previous conversation summary: {existing_summary.content} "
+                    f"Recent topics: {summary_text}"
+                )
+                summary_message = SystemMessage(content=combined_summary)
+            else:
+                summary_message = SystemMessage(
+                    content=f"Conversation summary: {summary_text}"
+                )
+            
+            # Replace history with summary + recent messages
+            self.history = [summary_message] + recent_messages
+            
+            print(f"✨ COMPRESSION EFFECTUÉE: {len(old_messages) + len(recent_messages)} → {len(self.history)} messages")
+            print(f"   Résumé créé + {len(recent_messages)} messages récents conservés\n")
 
 
 def _extract_cited_indices(answer: str) -> set[int]:

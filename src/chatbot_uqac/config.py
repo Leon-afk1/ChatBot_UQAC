@@ -28,3 +28,8 @@ REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "20"))
 USER_AGENT = os.getenv(
     "USER_AGENT", "ChatBotUQAC/0.1 (+https://www.uqac.ca/mgestion/)"
 )
+
+# Memory and summarization settings
+HISTORY_MAX_MESSAGES = int(os.getenv("HISTORY_MAX_MESSAGES", "5"))
+SUMMARIZE_THRESHOLD = int(os.getenv("SUMMARIZE_THRESHOLD", "10"))
+KEEP_RECENT_MESSAGES = int(os.getenv("KEEP_RECENT_MESSAGES", "6"))

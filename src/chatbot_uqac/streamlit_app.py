@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import streamlit as st
 
-from chatbot_uqac.config import CHROMA_DIR, DB_PATH
+from chatbot_uqac.config import (
+    CHROMA_DIR,
+    DB_PATH,
+    HISTORY_MAX_MESSAGES,
+    KEEP_RECENT_MESSAGES,
+    SUMMARIZE_THRESHOLD,
+)
 from chatbot_uqac.rag.engine import RagChat, build_llm, extract_sources
 from chatbot_uqac.rag.vectorstore import build_embeddings, load_vectorstore
 
@@ -23,7 +29,13 @@ if "chat" not in st.session_state:
     vectorstore = load_vectorstore(embeddings)
     retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
     llm = build_llm()
-    st.session_state.chat = RagChat(retriever, llm)
+    st.session_state.chat = RagChat(
+        retriever, 
+        llm,
+        max_history_messages=HISTORY_MAX_MESSAGES,
+        summarize_threshold=SUMMARIZE_THRESHOLD,
+        keep_recent=KEEP_RECENT_MESSAGES
+    )
     st.session_state.messages = []
 
 for message in st.session_state.messages:
