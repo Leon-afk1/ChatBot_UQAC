@@ -10,6 +10,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / "data"
 DB_PATH = DATA_DIR / "documents.sqlite3"
@@ -29,7 +35,16 @@ USER_AGENT = os.getenv(
     "USER_AGENT", "ChatBotUQAC/0.1 (+https://www.uqac.ca/mgestion/)"
 )
 
+# Retrieval settings
+RETRIEVAL_K = int(os.getenv("RETRIEVAL_K", "4"))
+_threshold_raw = os.getenv("RETRIEVAL_SCORE_THRESHOLD", "0.5")
+RETRIEVAL_SCORE_THRESHOLD = float(_threshold_raw) if _threshold_raw else None
+STREAMING_ENABLED = _env_bool("STREAMING_ENABLED", True)
+
 # Memory and summarization settings
 HISTORY_MAX_MESSAGES = int(os.getenv("HISTORY_MAX_MESSAGES", "5"))
 SUMMARIZE_THRESHOLD = int(os.getenv("SUMMARIZE_THRESHOLD", "10"))
 KEEP_RECENT_MESSAGES = int(os.getenv("KEEP_RECENT_MESSAGES", "6"))
+
+# Logging
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

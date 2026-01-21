@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -21,7 +22,11 @@ from chatbot_uqac.config import (
 from chatbot_uqac.ingest.crawler import CrawlConfig, crawl_site, is_pdf
 from chatbot_uqac.ingest.loaders import fetch_html, fetch_pdf
 from chatbot_uqac.ingest.store import DocumentStore
+from chatbot_uqac.logging_config import setup_logging
 from chatbot_uqac.rag.vectorstore import build_embeddings, load_vectorstore
+
+
+logger = logging.getLogger(__name__)
 
 
 def build_splitter() -> RecursiveCharacterTextSplitter:
@@ -34,6 +39,7 @@ def build_splitter() -> RecursiveCharacterTextSplitter:
 
 def main() -> None:
     """Run ingestion from the command line."""
+    setup_logging()
     parser = argparse.ArgumentParser(description="Ingest UQAC management guide.")
     parser.add_argument("--max-pages", type=int, default=MAX_PAGES)
     args = parser.parse_args()
@@ -75,6 +81,7 @@ def main() -> None:
                 else:
                     title, content = fetch_html(url, headers, REQUEST_TIMEOUT)
             except Exception:
+                logger.debug("Failed to load content for %s", url, exc_info=True)
                 continue
 
             if not content:

@@ -55,6 +55,8 @@ Files: `src/chatbot_uqac/ingest.py`, `src/chatbot_uqac/rag/vectorstore.py`
 Files: `src/chatbot_uqac/rag/engine.py`
 
 - The retriever fetches the most relevant chunks (default `k=4`).
+- When a score threshold is configured, only chunks with a score <= threshold
+  are kept (Chroma uses distance, so lower is better).
 - A system prompt tells the model to use only the provided context.
 - The answer is produced by a "stuff" chain (all retrieved docs concatenated).
 - Sources are extracted from chunk metadata and printed in the UI.
@@ -63,8 +65,12 @@ Files: `src/chatbot_uqac/rag/engine.py`
 
 Files: `src/chatbot_uqac/rag/engine.py`
 
-- A simple chat memory is maintained as a list of messages.
-- The last N turns (default 5) are injected into the prompt as `history`.
+- Chat memory is stored as a list of messages (human/assistant).
+- When the history exceeds a threshold, older messages are summarized into a
+  single `SystemMessage`, and only the most recent exchanges are kept.
+- Summaries are factual and strip citations/URLs; they are prepended to the
+  prompt history.
+- The last N turns are retained even after summarization to keep recent detail.
 - Memory is local to a session (CLI process or Streamlit session).
 
 ## User interfaces
@@ -87,6 +93,15 @@ Important settings:
 - `UQAC_BASE_URL`: start URL for crawling.
 - `CHUNK_SIZE`, `CHUNK_OVERLAP`: chunking behavior.
 - `MAX_PAGES`: crawl limit.
+- `REQUEST_TIMEOUT`: HTTP timeout (seconds) for crawling and downloads.
+- `USER_AGENT`: user agent string used for HTTP requests.
+- `RETRIEVAL_K`: number of chunks to retrieve per query.
+- `RETRIEVAL_SCORE_THRESHOLD`: distance threshold for retrieval filtering.
+- `STREAMING_ENABLED`: enable streaming responses in CLI and Streamlit.
+- `HISTORY_MAX_MESSAGES`: max turns kept when summarization does not trigger.
+- `SUMMARIZE_THRESHOLD`: number of messages that triggers history summarization.
+- `KEEP_RECENT_MESSAGES`: number of recent messages kept after summarization.
+- `LOG_LEVEL`: logging verbosity (e.g. `DEBUG`, `INFO`).
 
 ## Possible Extension points (prioritized)
 
@@ -105,9 +120,8 @@ Priority 1 (quality improvements):
 
 - Retrieval upgrades: MMR or reranking, and metadata filters to limit results
   to the most relevant sections.
-- Memory upgrades: summarize chat history to keep prompts small and relevant.
 - LangGraph: introduce a simple router (QA vs. "I do not know" vs. clarification).
-- UI polish: show ingestion status and dataset size in CLI and Streamlit.
+- Fix sources citations.
 
 Priority 2 (nice-to-have):
 

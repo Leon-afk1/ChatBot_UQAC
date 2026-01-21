@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import re
-from typing import Iterable
+from typing import Callable, Iterable
 
 from langchain_ollama import ChatOllama
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -16,8 +17,11 @@ SYSTEM_PROMPT = (
     "You are a helpful assistant for the UQAC management guide. "
     "Use only the provided context. If the answer is not in the context, "
     "say you do not know. Keep answers concise. "
-    "Cite sources using square brackets like [1] based on the context numbering."
+    "Cite sources using square brackets like [1] based on the context numbering. "
+    "Do not write 'Source:' or document titles; only use bracketed citations."
 )
+
+logger = logging.getLogger(__name__)
 
 
 def build_llm() -> ChatOllama:
@@ -93,16 +97,29 @@ def summarize_history(history: list[BaseMessage], llm: ChatOllama) -> str:
     return summary.strip()
 
 
+def _strip_source_lines(answer: str) -> str:
+    cleaned_lines = []
+    for line in answer.splitlines():
+        if re.match(r"^\s*(source|sources)\s*[:：]", line, flags=re.IGNORECASE):
+            continue
+        if re.match(r"^\s*\[\d+(?:,\s*\d+)*\]\s*source\s*[:：]", line, flags=re.IGNORECASE):
+            continue
+        cleaned_lines.append(line)
+    return "\n".join(cleaned_lines).strip()
+
+
 class RagChat:
     """Session-scoped RAG chat with short-term memory and periodic summarization."""
 
     def __init__(
-        self, 
-        retriever, 
-        llm: ChatOllama, 
+        self,
+        retriever,
+        llm: ChatOllama,
         max_history_messages: int = 5,
         summarize_threshold: int = 10,
-        keep_recent: int = 6
+        keep_recent: int = 6,
+        retrieval_k: int | None = None,
+        score_threshold: float | None = None,
     ) -> None:
         self.retriever = retriever
         self.llm = llm
@@ -111,14 +128,44 @@ class RagChat:
         self.max_history_messages = max_history_messages
         self.summarize_threshold = summarize_threshold  # Threshold to trigger summarization
         self.keep_recent = keep_recent  # Number of recent messages to keep (must be even)
+        self.retrieval_k = retrieval_k
+        self.score_threshold = score_threshold
 
     def _get_docs(self, question: str) -> list:
         # Support both old and new retriever interfaces.
+        if self.score_threshold is None:
+            if hasattr(self.retriever, "invoke"):
+                return self.retriever.invoke(question)
+            return self.retriever.get_relevant_documents(question)
+
+        vectorstore = getattr(self.retriever, "vectorstore", None)
+        if vectorstore and hasattr(vectorstore, "similarity_search_with_score"):
+            if self.retrieval_k is not None:
+                k = self.retrieval_k
+            else:
+                k = getattr(self.retriever, "search_kwargs", {}).get("k", 4)
+            results = vectorstore.similarity_search_with_score(question, k=k)
+            docs = [doc for doc, score in results if score <= self.score_threshold]
+            if not docs and results:
+                best_score = min(score for _, score in results)
+                logger.info(
+                    "No documents under score threshold %s (best=%s).",
+                    self.score_threshold,
+                    best_score,
+                )
+            logger.info("Retrieved %s documents after applying score threshold.", len(docs))
+            return docs
+
         if hasattr(self.retriever, "invoke"):
             return self.retriever.invoke(question)
         return self.retriever.get_relevant_documents(question)
 
-    def ask(self, question: str) -> tuple[str, list]:
+    def ask(
+        self,
+        question: str,
+        stream: bool = False,
+        on_chunk: Callable[[str], None] | None = None,
+    ) -> tuple[str, list]:
         """Retrieve context and generate a cited answer."""
         # Retrieve context and generate an answer with citations.
         docs = self._get_docs(question)
@@ -126,50 +173,67 @@ class RagChat:
         messages = self.prompt.format_messages(
             input=question, context=context, history=self.history
         )
-        response = self.llm.invoke(messages)
-        answer = response.content if hasattr(response, "content") else str(response)
+        if stream:
+            parts: list[str] = []
+            for chunk in self.llm.stream(messages):
+                text = getattr(chunk, "content", str(chunk))
+                if not text:
+                    continue
+                parts.append(text)
+                if on_chunk:
+                    on_chunk(text)
+            answer = "".join(parts)
+        else:
+            response = self.llm.invoke(messages)
+            answer = response.content if hasattr(response, "content") else str(response)
+        answer = _strip_source_lines(answer)
         self._append_history(question, answer)
         return answer, docs
 
     def _append_history(self, question: str, answer: str) -> None:
         self.history.append(HumanMessage(content=question))
         self.history.append(AIMessage(content=answer))
-        
-        # Print history status
-        print(f"\n{'='*70}")
-        print(f"📝 HISTORIQUE ACTUEL: {len(self.history)} messages")
-        print(f"{'='*70}")
-        for i, msg in enumerate(self.history):
-            msg_type = "👤 USER" if isinstance(msg, HumanMessage) else "🤖 ASSISTANT" if isinstance(msg, AIMessage) else "📋 RÉSUMÉ"
-            content = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
-            print(f"[{i}] {msg_type}: {content}")
-        print(f"{'='*70}\n")
-        
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("History length: %s messages", len(self.history))
+            for index, msg in enumerate(self.history):
+                if isinstance(msg, HumanMessage):
+                    msg_type = "user"
+                elif isinstance(msg, AIMessage):
+                    msg_type = "assistant"
+                else:
+                    msg_type = "summary"
+                logger.debug("History[%s] %s: %s", index, msg_type, msg.content)
+
         # Trigger summarization if history exceeds threshold
         if len(self.history) > self.summarize_threshold:
-            print(f"⚠️  Seuil dépassé ({len(self.history)} > {self.summarize_threshold}), déclenchement du résumé...\n")
+            logger.info(
+                "History length %s exceeds threshold %s; summarizing.",
+                len(self.history),
+                self.summarize_threshold,
+            )
             self._summarize_and_compress_history()
         # Fallback: simple truncation if no summary was created
         elif len(self.history) > self.max_history_messages * 2:
             excess = len(self.history) - self.max_history_messages * 2
             self.history = self.history[excess:]
-    
+
     def _summarize_and_compress_history(self) -> None:
         """Summarize old messages and keep only recent ones + summary."""
         # Keep only the most recent messages
         recent_messages = self.history[-self.keep_recent:]
         old_messages = self.history[:-self.keep_recent]
-        
+
         # Check if we already have a summary at the beginning
         existing_summary = None
         if old_messages and isinstance(old_messages[0], SystemMessage):
             existing_summary = old_messages[0]
             old_messages = old_messages[1:]
-        
+
         # Generate a summary of the old messages
         if old_messages:
             summary_text = summarize_history(old_messages, self.llm)
-            
+
             # If there's an existing summary, combine them
             if existing_summary:
                 combined_summary = (
@@ -181,12 +245,15 @@ class RagChat:
                 summary_message = SystemMessage(
                     content=f"Conversation summary: {summary_text}"
                 )
-            
+
             # Replace history with summary + recent messages
             self.history = [summary_message] + recent_messages
-            
-            print(f"✨ COMPRESSION EFFECTUÉE: {len(old_messages) + len(recent_messages)} → {len(self.history)} messages")
-            print(f"   Résumé créé + {len(recent_messages)} messages récents conservés\n")
+
+            logger.info(
+                "History compressed from %s to %s messages.",
+                len(old_messages) + len(recent_messages),
+                len(self.history),
+            )
 
 
 def _extract_cited_indices(answer: str) -> set[int]:
