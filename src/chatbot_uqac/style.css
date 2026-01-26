@@ -1,0 +1,55 @@
+/* Couleurs UQAC */
+:root {
+    --uqac-green: #2D5016;
+    --uqac-light-green: #5C8A3A;
+    --uqac-dark: #1a1a1a;
+    --uqac-gray: #6c757d;
+    --uqac-light-gray: #f8f9fa;
+}
+
+/* Titre principal */
+h1 {
+    color: var(--uqac-green) !important;
+    font-weight: 700;
+}
+
+/* Messages du chat */
+.stChatMessage {
+    border-left: 4px solid var(--uqac-green) !important;
+    border-radius: 8px !important;
+    padding: 1rem !important;
+    margin: 0.5rem 0 !important;
+}
+
+
+/* Input du chat */
+.stChatInputContainer {
+    border-top: 2px solid var(--uqac-green);
+    padding-top: 1rem;
+}
+
+/* Boutons */
+.stButton > button {
+    background-color: var(--uqac-green);
+    color: white;
+    border: none;
+    border-radius: 5px;
+    font-weight: 600;
+    transition: all 0.3s;
+}
+
+.stButton > button:hover {
+    background-color: var(--uqac-light-green);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+/* Captions et sources */
+.caption {
+    color: var(--uqac-gray) !important;
+    font-size: 0.9rem;
+}
+
+/* Spinner */
+.stSpinner > div {
+    border-top-color: var(--uqac-green) !important;
+}

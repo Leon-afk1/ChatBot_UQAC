@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 
 import streamlit as st
 
@@ -23,7 +24,14 @@ from chatbot_uqac.rag.vectorstore import build_embeddings, load_vectorstore
 
 
 setup_logging()
-st.set_page_config(page_title="ChatBot UQAC")
+st.set_page_config(page_title="ChatBot UQAC", layout="wide")
+
+# Chargement du CSS personnalisé
+css_file = Path(__file__).parent / "style.css"
+if css_file.exists():
+    with open(css_file) as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
 st.title("ChatBot UQAC")
 
 if not DB_PATH.exists() or not CHROMA_DIR.exists():
