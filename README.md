@@ -53,7 +53,7 @@ python -m chatbot_uqac.cli
 8) Run the Streamlit app:
 
 ```bash
-streamlit run src/chatbot_uqac/streamlit_app.py
+python -m streamlit run src/chatbot_uqac/streamlit_app.py
 ```
 
 ## Notes
