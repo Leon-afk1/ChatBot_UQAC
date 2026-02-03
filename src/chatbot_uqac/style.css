@@ -1,0 +1,423 @@
+/* Couleurs UQAC */
+:root {
+    --uqac-green: #548427; /* Pantone 575 approx */
+    --uqac-dark-green: #3d611c;
+    --uqac-light-green: #70a63a;
+    --uqac-yellow: #fcb515; /* Accent gold/yellow often seen */
+    --uqac-text-dark: #333333;
+    --uqac-light-gray: #f4f4f4;
+    --uqac-white: #ffffff;
+}
+
+/* Global App Styling */
+.stApp {
+    background-color: var(--uqac-white);
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Header customization to look like a portal */
+header[data-testid="stHeader"] {
+    background-color: var(--uqac-white);
+    border-bottom: 2px solid var(--uqac-green);
+}
+
+/* Main Title styling */
+h1 {
+    color: var(--uqac-green) !important;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 2rem !important;
+}
+
+/* Chat Message Bubbles */
+.stChatMessage {
+    padding: 1rem 1.5rem !important;
+    border-radius: 12px !important;
+    margin-bottom: 1rem !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+    border: none !important;
+}
+
+/* Default text color for ALL chat messages - black */
+.stChatMessage p,
+.stChatMessage span,
+.stChatMessage li,
+.stChatMessage div,
+[data-testid^="stChatMessage"] p,
+[data-testid^="stChatMessage"] span,
+[data-testid^="stChatMessage"] li,
+[data-testid^="stChatMessage"] div {
+    color: var(--uqac-text-dark) !important;
+}
+
+/* User Message - styled via JavaScript class addition */
+.user-message-styled,
+.user-message-styled.stChatMessage,
+div.user-message-styled {
+    background-color: var(--uqac-green) !important;
+    border-left: 4px solid var(--uqac-dark-green) !important;
+}
+
+.user-message-styled p,
+.user-message-styled span,
+.user-message-styled div:not([data-testid="chatAvatarIcon-user"]) {
+    color: white !important;
+}
+
+/* Fallback using :has() for browsers that support it */
+.stChatMessage:has([data-testid="chatAvatarIcon-user"]),
+div.stChatMessage:has([data-testid="chatAvatarIcon-user"]),
+[data-testid^="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
+    background-color: var(--uqac-green) !important;
+    border-left: 4px solid var(--uqac-dark-green) !important;
+    border-radius: 12px !important;
+}
+
+.stChatMessage:has([data-testid="chatAvatarIcon-user"]) p,
+.stChatMessage:has([data-testid="chatAvatarIcon-user"]) span,
+.stChatMessage:has([data-testid="chatAvatarIcon-user"]) div:not([data-testid="chatAvatarIcon-user"]) {
+    color: white !important;
+}
+
+/* Avatar Styling - User - white circle with green icon to contrast with green background */
+[data-testid="chatAvatarIcon-user"] {
+    background-color: white !important;
+    color: var(--uqac-green) !important;
+    border: 2px solid var(--uqac-dark-green) !important;
+    border-radius: 50% !important;
+}
+
+[data-testid="chatAvatarIcon-user"] svg {
+    fill: var(--uqac-green) !important;
+}
+
+/* Assistant Message background */
+[data-testid="stChatMessage-assistant"],
+.stChatMessage:has([data-testid="chatAvatarIcon-assistant"]) {
+    background-color: #e8f5e9 !important;
+    border-left: 4px solid var(--uqac-green) !important;
+    border-radius: 12px !important;
+}
+
+/* Avatar Styling - Assistant */
+[data-testid="chatAvatarIcon-assistant"] {
+    background-color: var(--uqac-dark-green) !important;
+    color: white !important;
+}
+
+[data-testid="chatAvatarIcon-assistant"] svg {
+    fill: white !important;
+}
+
+/* Generic avatar styling fallback */
+.stChatMessage [data-testid*="Avatar"],
+.stChatMessage [class*="avatar"] {
+    background-color: var(--uqac-green) !important;
+}
+
+.stChatMessage [data-testid*="Avatar"] svg,
+.stChatMessage [class*="avatar"] svg {
+    fill: white !important;
+}
+
+/* Input container - Force Light Theme */
+section[data-testid="stChatInputForm"] {
+    background-color: var(--uqac-white) !important;
+    border-top: 1px solid #ddd !important;
+}
+
+[data-testid="stChatInput"] textarea {
+    color: var(--uqac-text-dark) !important;
+    background-color: transparent !important;
+    caret-color: var(--uqac-green) !important;
+}
+
+[data-testid="stChatInput"] textarea::placeholder {
+    color: #6c757d !important;
+}
+
+/* Force white background on bottom bar */
+.stBottom, 
+[data-testid="stBottom"],
+.stChatFloatingInputContainer,
+[data-testid="stChatFloatingInputContainer"],
+[data-testid="stBottomBlockContainer"] {
+    background-color: var(--uqac-white) !important;
+}
+
+/* Target ALL elements in the bottom container */
+.stBottom *,
+[data-testid="stBottom"] *,
+[data-testid="stBottomBlockContainer"] * {
+    background-color: transparent !important;
+}
+
+/* Re-apply specific styles after wildcard reset */
+[data-testid="stChatInput"] {
+    background-color: #f4f4f4 !important;
+    border: 2px solid var(--uqac-green) !important;
+    border-radius: 8px !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+[data-testid="stChatInput"]:focus-within {
+    border: 2px solid var(--uqac-green) !important;
+    outline: none !important;
+    box-shadow: 0 0 0 2px rgba(84, 132, 39, 0.2) !important;
+}
+
+[data-testid="stChatInput"] textarea:focus {
+    outline: none !important;
+    box-shadow: none !important;
+    border: none !important;
+}
+
+/* Remove ALL red focus outlines inside chat input */
+[data-testid="stChatInput"] *:focus,
+[data-testid="stChatInput"] *:focus-visible,
+[data-testid="stChatInput"] *:active {
+    outline: none !important;
+    box-shadow: none !important;
+    border-color: transparent !important;
+}
+
+/* Kill any delayed/animated focus styles from Streamlit */
+[data-testid="stChatInput"] div,
+[data-testid="stChatInput"] div:focus,
+[data-testid="stChatInput"] div:focus-within,
+[data-testid="stChatInput"] [data-baseweb],
+[data-testid="stChatInput"] [data-baseweb] * {
+    outline: none !important;
+    box-shadow: none !important;
+    border: none !important;
+    transition: none !important;
+}
+
+/* Target baseweb textarea wrapper specifically */
+[data-baseweb="textarea"],
+[data-baseweb="textarea"]:focus-within,
+[data-baseweb="textarea"] > div,
+[data-baseweb="textarea"] > div:focus-within {
+    outline: none !important;
+    box-shadow: none !important;
+    border: none !important;
+    background-color: transparent !important;
+}
+
+/* Send button styling */
+[data-testid="stChatInputSubmitButton"] {
+    background-color: var(--uqac-green) !important;
+    color: white !important;
+    border-radius: 8px !important;
+}
+
+[data-testid="stChatInputSubmitButton"]:hover {
+    background-color: var(--uqac-dark-green) !important;
+}
+
+[data-testid="stChatInputSubmitButton"] svg {
+    fill: white !important;
+}
+
+/* Buttons */
+.stButton > button {
+    background-color: var(--uqac-green) !important;
+    color: white !important;
+    border-radius: 6px !important;
+    border: none !important;
+    font-weight: 600 !important;
+    padding: 0.5rem 1.5rem !important;
+    text-transform: uppercase;
+    font-size: 0.9rem !important;
+}
+
+.stButton > button:hover {
+    background-color: var(--uqac-dark-green) !important;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+}
+
+/* Sidebar styling */
+[data-testid="stSidebar"] {
+    background-color: var(--uqac-light-gray);
+    border-right: 1px solid #ddd;
+}
+
+/* Sidebar collapse/expand button - visible but transparent background */
+[data-testid="stSidebarCollapseButton"],
+[data-testid="stSidebar"] button[kind="headerNoPadding"] {
+    background-color: transparent !important;
+    color: var(--uqac-green) !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+[data-testid="stSidebarCollapseButton"] svg,
+[data-testid="stSidebar"] button[kind="headerNoPadding"] svg {
+    fill: var(--uqac-green) !important;
+    stroke: var(--uqac-green) !important;
+}
+
+/* Collapsed sidebar expand button (appears on left edge when sidebar is hidden) */
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"] {
+    background-color: var(--uqac-light-gray) !important;
+    color: var(--uqac-green) !important;
+}
+
+[data-testid="collapsedControl"] svg,
+[data-testid="stSidebarCollapsedControl"] svg {
+    fill: var(--uqac-green) !important;
+    stroke: var(--uqac-green) !important;
+}
+
+/* Header menu button (three dots) - fix white rectangle inside */
+header[data-testid="stHeader"] button,
+header[data-testid="stHeader"] [data-testid="stBaseButton-headerNoPadding"] {
+    background-color: transparent !important;
+}
+
+header[data-testid="stHeader"] button *,
+header[data-testid="stHeader"] [data-testid="stBaseButton-headerNoPadding"] * {
+    background-color: transparent !important;
+}
+
+header[data-testid="stHeader"] button svg {
+    fill: var(--uqac-green) !important;
+}
+
+/* Header text and elements - make visible */
+header[data-testid="stHeader"] * {
+    color: var(--uqac-text-dark) !important;
+}
+
+header[data-testid="stHeader"] a,
+header[data-testid="stHeader"] span {
+    color: var(--uqac-text-dark) !important;
+}
+
+/* Force text color on all elements inside the sidebar */
+[data-testid="stSidebar"] * {
+    color: var(--uqac-text-dark) !important;
+}
+
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
+    color: var(--uqac-green) !important;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+::-webkit-scrollbar-track {
+    background: #f1f1f1; 
+}
+::-webkit-scrollbar-thumb {
+    background: var(--uqac-green);
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--uqac-dark-green);
+}
+
+/* Spinner - force green everywhere with maximum specificity */
+.stSpinner > div,
+.stSpinner div,
+[data-testid="stSpinner"] > div,
+[data-testid="stSpinner"] div,
+[class*="stSpinner"] div,
+[class*="spinner"] div,
+.stMarkdown + div div[class*="spin"],
+div[class*="Spinner"] div {
+    border-top-color: var(--uqac-green) !important;
+    border-right-color: rgba(84, 132, 39, 0.3) !important;
+    border-bottom-color: rgba(84, 132, 39, 0.3) !important;
+    border-left-color: rgba(84, 132, 39, 0.3) !important;
+}
+
+/* Target the actual spinning element by its animation */
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+div[style*="animation"],
+div[class*="spin"] {
+    border-top-color: var(--uqac-green) !important;
+    border-right-color: rgba(84, 132, 39, 0.3) !important;
+    border-bottom-color: rgba(84, 132, 39, 0.3) !important;
+    border-left-color: rgba(84, 132, 39, 0.3) !important;
+}
+
+/* Spinner inside chat messages */
+.stChatMessage .stSpinner *,
+.stChatMessage [data-testid="stSpinner"] *,
+.stChatMessage [class*="spinner"] *,
+[data-testid="stChatMessage"] .stSpinner *,
+[data-testid="stChatMessage"] [data-testid="stSpinner"] *,
+[data-testid="stChatMessage-assistant"] .stSpinner *,
+[data-testid="stChatMessage-assistant"] [data-testid="stSpinner"] * {
+    border-top-color: var(--uqac-green) !important;
+    border-right-color: rgba(84, 132, 39, 0.3) !important;
+    border-bottom-color: rgba(84, 132, 39, 0.3) !important;
+    border-left-color: rgba(84, 132, 39, 0.3) !important;
+    color: var(--uqac-green) !important;
+}
+
+/* Spinner text */
+.stSpinner p,
+[data-testid="stSpinner"] p,
+.stChatMessage .stSpinner p {
+    color: var(--uqac-green) !important;
+}
+
+/* Custom Sources styling - no box, clickable links */
+.source-container {
+    font-size: 0.85rem;
+    color: var(--uqac-text-dark);
+    background: transparent;
+    padding: 8px 0;
+    border-radius: 0;
+    border: none;
+    margin-top: 8px;
+}
+
+.source-container a {
+    color: var(--uqac-green) !important;
+    text-decoration: underline;
+}
+
+.source-container a:hover {
+    color: var(--uqac-dark-green) !important;
+}
+
+/* Style du message assistant pendant le chargement (via marqueur CSS) */
+.assistant-loading-marker + div [data-testid="stChatMessage"],
+.assistant-loading-marker ~ [data-testid="stChatMessage"],
+.assistant-loading-marker + div .stChatMessage {
+    background-color: #f4f4f4 !important;
+    border-left: 4px solid var(--uqac-green) !important;
+    border-radius: 12px !important;
+    padding: 1rem 1.5rem !important;
+}
+
+.assistant-loading-marker + div [data-testid="stChatMessageAvatarAssistant"],
+.assistant-loading-marker ~ [data-testid="stChatMessage"] [data-testid="stChatMessageAvatarAssistant"],
+.assistant-loading-marker + div [data-testid="chatAvatarIcon-assistant"] {
+    background-color: var(--uqac-green) !important;
+    border-radius: 8px !important;
+}
+
+.assistant-loading-marker + div [data-testid="chatAvatarIcon-assistant"] svg,
+.assistant-loading-marker ~ [data-testid="stChatMessage"] [data-testid="chatAvatarIcon-assistant"] svg {
+    fill: white !important;
+}
+
+.assistant-loading-marker + div [data-testid="stChatMessage"] .stMarkdown,
+.assistant-loading-marker + div [data-testid="stChatMessage"] p,
+.assistant-loading-marker ~ [data-testid="stChatMessage"] p {
+    color: #333 !important;
+}

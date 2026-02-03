@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 
 import streamlit as st
 
@@ -23,35 +24,99 @@ from chatbot_uqac.rag.vectorstore import build_embeddings, load_vectorstore
 
 
 setup_logging()
-st.set_page_config(page_title="ChatBot UQAC")
-st.title("ChatBot UQAC")
+st.set_page_config(
+    page_title="Assistant Virtuel UQAC",
+    page_icon="🎓",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Chargement du CSS personnalisé
+css_file = Path(__file__).parent / "style.css"
+if css_file.exists():
+    with open(css_file) as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
+# JavaScript pour styliser les messages utilisateur
+st.markdown("""
+<script>
+function styleUserMessages() {
+    const messages = document.querySelectorAll('[data-testid^="stChatMessage"]');
+    messages.forEach(msg => {
+        const avatar = msg.querySelector('[data-testid="chatAvatarIcon-user"]');
+        if (avatar) {
+            msg.classList.add('user-message-styled');
+        }
+    });
+}
+// Run on load and observe for changes
+const observer = new MutationObserver(styleUserMessages);
+observer.observe(document.body, { childList: true, subtree: true });
+setTimeout(styleUserMessages, 500);
+</script>
+""", unsafe_allow_html=True)
+
+# --- Sidebar Configuration ---
+with st.sidebar:
+    # Logo UQAC
+    logo_path = Path(__file__).parent / "assets" / "UQAC_Logo.png"
+    if logo_path.exists():
+        st.image(str(logo_path), width=200)
+    
+    st.markdown("### Assistant Virtuel")
+    st.markdown(
+        """
+        Cet assistant utilise l'IA pour répondre à vos questions sur les guides de gestion de l'UQAC.
+        
+        **Sources:**
+        - Guides officiels
+        - Documents administratifs
+        """
+    )
+    
+    st.divider()
+    
+    # Dataset Info in Sidebar
+    if "dataset_info" not in st.session_state:
+        # Initial check logic preserved
+        pass 
+       
+    # We'll populate dataset info later in the script but user sees it here
+    placeholder_info = st.empty()
+
+
+# --- Main Content ---
+st.markdown('''
+<h1 style="text-align: center; color: #548427; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding-bottom: 0.5rem; border-bottom: 1px solid #ddd; margin-bottom: 2rem;">
+    Assistant UQAC
+</h1>
+''', unsafe_allow_html=True)
 
 if not DB_PATH.exists() or not CHROMA_DIR.exists():
     # Avoid running the chat without an indexed corpus.
-    st.warning("Missing local data. Run: python -m chatbot_uqac.ingest")
+    st.warning("⚠️ Données locales manquantes. Lancez: `python -m chatbot_uqac.ingest`")
     st.stop()
 
 if "chat" not in st.session_state:
     # Build the retriever/LLM once per session.
-    embeddings = build_embeddings()
-    vectorstore = load_vectorstore(embeddings)
-    retriever = vectorstore.as_retriever(search_kwargs={"k": RETRIEVAL_K})
-    llm = build_llm()
-    st.session_state.chat = RagChat(
-        retriever,
-        llm,
-        max_history_messages=HISTORY_MAX_MESSAGES,
-        summarize_threshold=SUMMARIZE_THRESHOLD,
-        keep_recent=KEEP_RECENT_MESSAGES,
-        retrieval_k=RETRIEVAL_K,
-        score_threshold=RETRIEVAL_SCORE_THRESHOLD,
-    )
-    st.session_state.messages = []
-    st.session_state.busy = False
+    with st.spinner("Initialisation de l'assistant..."):
+        embeddings = build_embeddings()
+        vectorstore = load_vectorstore(embeddings)
+        retriever = vectorstore.as_retriever(search_kwargs={"k": RETRIEVAL_K})
+        llm = build_llm()
+        st.session_state.chat = RagChat(
+            retriever,
+            llm,
+            max_history_messages=HISTORY_MAX_MESSAGES,
+            summarize_threshold=SUMMARIZE_THRESHOLD,
+            keep_recent=KEEP_RECENT_MESSAGES,
+            retrieval_k=RETRIEVAL_K,
+            score_threshold=RETRIEVAL_SCORE_THRESHOLD,
+        )
+        st.session_state.messages = []
+        st.session_state.busy = False
 
-if "pending_question" not in st.session_state:
-    st.session_state.pending_question = None
-
+# Dataset Info Logic (Preserved)
 if "dataset_info" not in st.session_state:
     try:
         chunk_count = st.session_state.chat.retriever.vectorstore._collection.count()
@@ -64,31 +129,48 @@ if "dataset_info" not in st.session_state:
         doc_count = None
     st.session_state.dataset_info = (doc_count, chunk_count)
 
+# Display dataset info in sidebar
 doc_count, chunk_count = st.session_state.dataset_info
 if doc_count is not None or chunk_count is not None:
-    parts = []
-    if doc_count is not None:
-        parts.append(f"Documents: {doc_count}")
-    if chunk_count is not None:
-        parts.append(f"Chunks: {chunk_count}")
-    st.caption("Dataset size: " + " | ".join(parts))
-st.caption(f"Chat model: {OLLAMA_CHAT_MODEL}")
+    info_text = ""
+    if doc_count: info_text += f"📄 **Documents:** {doc_count}\n\n"
+    if chunk_count: info_text += f"🧩 **Fragments:** {chunk_count}"
+    placeholder_info.markdown(info_text)
 
+# Chat Interface
 for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.write(message["content"])
+    if message["role"] == "user":
+        st.markdown(f'''
+        <div style="background-color: #548427; border-left: 4px solid #3d611c; border-radius: 12px; padding: 1rem 1.5rem; margin-bottom: 1rem; display: flex; align-items: flex-start; gap: 12px;">
+            <div style="background-color: white; border: 2px solid #3d611c; border-radius: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#548427" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+            </div>
+            <p style="color: white; margin: 0; flex-grow: 1;">{message["content"]}</p>
+        </div>
+        ''', unsafe_allow_html=True)
+    else:
         sources = message.get("sources")
+        sources_html = ""
         if sources:
-            st.caption("Sources:")
-            st.write("\n".join(sources))
+            sources_links = "<br>".join([f'<a href="{s}" target="_blank" style="color: #548427;">{s}</a>' for s in sources])
+            sources_html = f'<div style="font-size: 0.85rem; margin-top: 12px; padding-top: 8px; border-top: 1px solid #ddd;">📚 <b>Sources:</b><br>{sources_links}</div>'
+        st.markdown(f'''
+        <div style="background-color: #f4f4f4; border-left: 4px solid #548427; border-radius: 12px; padding: 1rem 1.5rem; margin-bottom: 1rem; display: flex; align-items: flex-start; gap: 12px;">
+            <div style="background-color: #548427; border-radius: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg>
+            </div>
+            <div style="color: #333; margin: 0; flex-grow: 1;">{message["content"]}{sources_html}</div>
+        </div>
+        ''', unsafe_allow_html=True)
 
-processing = st.session_state.pending_question is not None
+processing = st.session_state.get("pending_question") is not None
 st.session_state.busy = processing
 
 question = st.chat_input(
-    "Ask a question about the UQAC guide...",
+    "Posez votre question sur l'UQAC...",
     disabled=processing,
 )
+
 if question and not processing:
     st.session_state.pending_question = question
     st.session_state.busy = True
@@ -99,11 +181,20 @@ if question and not processing:
 if processing:
     question = st.session_state.pending_question
     st.session_state.messages.append({"role": "user", "content": question})
-    with st.chat_message("user"):
-        st.write(question)
+    st.markdown(f'''
+    <div style="background-color: #548427; border-left: 4px solid #3d611c; border-radius: 12px; padding: 1rem 1.5rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 12px;">
+        <div style="background-color: white; border: 2px solid #3d611c; border-radius: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#548427" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+        </div>
+        <p style="color: white; margin: 0; flex-grow: 1;">{question}</p>
+    </div>
+    ''', unsafe_allow_html=True)
 
+    # Marqueur pour le style CSS du conteneur assistant
+    st.markdown('<div class="assistant-loading-marker"></div>', unsafe_allow_html=True)
+    
     with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
+        with st.spinner("Recherche dans les documents..."):
             try:
                 if STREAMING_ENABLED:
                     placeholder = st.empty()
@@ -123,11 +214,13 @@ if processing:
             finally:
                 st.session_state.busy = False
                 st.session_state.pending_question = None
+        
         # Only show sources that were cited by the model.
         sources = extract_sources(docs, answer)
         if sources:
-            st.caption("Sources:")
-            st.write("\n".join(sources))
+            sources_links = "<br>".join([f'<a href="{s}" target="_blank">{s}</a>' for s in sources])
+            st.markdown(f'<div class="source-container">📚 <b>Sources:</b><br>{sources_links}</div>', unsafe_allow_html=True)
+             
     st.session_state.messages.append(
         {"role": "assistant", "content": answer, "sources": sources}
     )
