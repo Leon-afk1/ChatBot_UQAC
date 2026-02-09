@@ -5,6 +5,11 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from chatbot_uqac.compat import ensure_supported_python
+
+
+ensure_supported_python()
+
 import streamlit as st
 
 from chatbot_uqac.config import (
@@ -100,21 +105,25 @@ if not DB_PATH.exists() or not CHROMA_DIR.exists():
 if "chat" not in st.session_state:
     # Build the retriever/LLM once per session.
     with st.spinner("Initialisation de l'assistant..."):
-        embeddings = build_embeddings()
-        vectorstore = load_vectorstore(embeddings)
-        retriever = vectorstore.as_retriever(search_kwargs={"k": RETRIEVAL_K})
-        llm = build_llm()
-        st.session_state.chat = RagChat(
-            retriever,
-            llm,
-            max_history_messages=HISTORY_MAX_MESSAGES,
-            summarize_threshold=SUMMARIZE_THRESHOLD,
-            keep_recent=KEEP_RECENT_MESSAGES,
-            retrieval_k=RETRIEVAL_K,
-            score_threshold=RETRIEVAL_SCORE_THRESHOLD,
-        )
-        st.session_state.messages = []
-        st.session_state.busy = False
+        try:
+            embeddings = build_embeddings()
+            vectorstore = load_vectorstore(embeddings)
+            retriever = vectorstore.as_retriever(search_kwargs={"k": RETRIEVAL_K})
+            llm = build_llm()
+            st.session_state.chat = RagChat(
+                retriever,
+                llm,
+                max_history_messages=HISTORY_MAX_MESSAGES,
+                summarize_threshold=SUMMARIZE_THRESHOLD,
+                keep_recent=KEEP_RECENT_MESSAGES,
+                retrieval_k=RETRIEVAL_K,
+                score_threshold=RETRIEVAL_SCORE_THRESHOLD,
+            )
+            st.session_state.messages = []
+            st.session_state.busy = False
+        except RuntimeError as e:
+            st.error(str(e))
+            st.stop()
 
 # Dataset Info Logic (Preserved)
 if "dataset_info" not in st.session_state:
@@ -194,7 +203,7 @@ if processing:
     st.markdown('<div class="assistant-loading-marker"></div>', unsafe_allow_html=True)
     
     with st.chat_message("assistant"):
-        with st.spinner("Recherche dans les documents..."):
+        with st.spinner("Traitement de votre demande..."):
             try:
                 if STREAMING_ENABLED:
                     placeholder = st.empty()

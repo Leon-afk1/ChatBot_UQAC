@@ -52,18 +52,42 @@ Files: `src/chatbot_uqac/ingest.py`, `src/chatbot_uqac/rag/vectorstore.py`
 
 ## Retrieval and RAG answer generation
 
-Files: `src/chatbot_uqac/rag/engine.py`
+Files: `src/chatbot_uqac/rag/engine.py`, `src/chatbot_uqac/rag/routing.py`
 
 - The retriever fetches the most relevant chunks (default `k=4`).
 - When a score threshold is configured, only chunks with a score <= threshold
   are kept (Chroma uses distance, so lower is better).
+- Retrieval helper logic is centralized in `routing.py` (`retrieve_docs`) and
+  reused by `RagChat` to keep behavior consistent.
 - A system prompt tells the model to use only the provided context.
 - The answer is produced by a "stuff" chain (all retrieved docs concatenated).
 - Sources are extracted from chunk metadata and printed in the UI.
 
+## Query routing layer
+
+Files: `src/chatbot_uqac/rag/routing.py`, `src/chatbot_uqac/rag/engine.py`
+
+- Before standard RAG generation, each question goes through a lightweight
+  router (`route`).
+- The router can select one of four modes:
+  - `chitchat`: social message (greetings/small talk), answered directly by the
+    model without retrieval context.
+  - `memory`: for explicit chat-memory requests (for example, last question or
+    conversation summary), answered from history only.
+  - `rag`: standard retrieval + generation when relevant docs are found.
+  - `clarify`: ask the user to clarify when intent is classified as `unclear`
+    with sufficient confidence (no document retrieval in that branch).
+  - `no_docs`: return a fixed fallback when no relevant document is found.
+- Routing is hybrid: deterministic checks + LLM intent classification
+  (`domain|memory|chitchat|unclear`) with confidence-based decisions.
+- This routing step improves behavior for social queries while preserving
+  retrieval-first grounding for domain questions.
+- Routing observability is logged in `routing.py` (intent, confidence, selected
+  mode, and reason). Use `LOG_LEVEL=INFO` (or `DEBUG`) to inspect decisions.
+
 ## Memory behavior
 
-Files: `src/chatbot_uqac/rag/engine.py`
+Files: `src/chatbot_uqac/rag/engine.py`, `src/chatbot_uqac/rag/routing.py`
 
 - Chat memory is stored as a list of messages (human/assistant).
 - When the history exceeds a threshold, older messages are summarized into a
@@ -72,6 +96,8 @@ Files: `src/chatbot_uqac/rag/engine.py`
   prompt history.
 - The last N turns are retained even after summarization to keep recent detail.
 - Memory is local to a session (CLI process or Streamlit session).
+- For memory-only queries, `answer_from_memory_only` forwards the conversation
+  transcript + user request to the LLM, with no retrieval step.
 
 ## User interfaces
 
@@ -102,29 +128,3 @@ Important settings:
 - `SUMMARIZE_THRESHOLD`: number of messages that triggers history summarization.
 - `KEEP_RECENT_MESSAGES`: number of recent messages kept after summarization.
 - `LOG_LEVEL`: logging verbosity (e.g. `DEBUG`, `INFO`).
-
-## Possible Extension points (prioritized)
-
-Priority 0 (required for a reliable, successful project):
-
-- Ingestion QA and logs: track counts, failures, and per-URL status; export a
-  simple report to verify coverage and catch missing pages.
-- Crawl scope controls: make allowed paths explicit in config, and document
-  how to include or exclude specific sections.
-- Data refresh workflow: add a safe re-ingest mode with cache validation and a
-  clear "rebuild index" procedure.
-- Retrieval correctness: add basic evaluation questions and confirm that the
-  cited sources match the answer content.
-
-Priority 1 (quality improvements):
-
-- Retrieval upgrades: MMR or reranking, and metadata filters to limit results
-  to the most relevant sections.
-- LangGraph: introduce a simple router (QA vs. "I do not know" vs. clarification).
-- Fix sources citations.
-
-Priority 2 (nice-to-have):
-
-- Scheduled re-ingestion with change detection.
-- User feedback loop (thumbs up/down + notes) to tune prompts and retrieval.
-- Advanced analytics (top questions, failure cases).

@@ -25,7 +25,13 @@ class DocumentStore:
 
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        except PermissionError as e:
+            raise RuntimeError(
+                f"SQLite data directory is not writable: {self.db_path.parent}. "
+                "Fix permissions (e.g. `chmod -R u+w data`) or set DATA_DIR/DB_PATH to a writable location."
+            ) from e
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:

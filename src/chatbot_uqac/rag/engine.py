@@ -4,13 +4,20 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Callable, Iterable
+from typing import Callable, Iterable
 
 from langchain_ollama import ChatOllama
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from chatbot_uqac.config import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL
+from chatbot_uqac.rag.routing import (
+    answer_from_chitchat,
+    answer_from_memory_only,
+    retrieve_docs,
+    route,
+    summarize_history,
+)
 
 
 SYSTEM_PROMPT = (
@@ -68,35 +75,6 @@ def format_docs(docs: Iterable) -> str:
     return "\n\n".join(parts)
 
 
-def summarize_history(history: list[BaseMessage], llm: ChatOllama) -> str:
-    """Generate a factual summary of the conversation history."""
-    if not history:
-        return ""
-    
-    # Build a prompt to summarize the conversation
-    conversation_text = []
-    for msg in history:
-        if isinstance(msg, HumanMessage):
-            conversation_text.append(f"User: {msg.content}")
-        elif isinstance(msg, AIMessage):
-            # Remove citations from the summary
-            content = re.sub(r"\[\d+(?:,\s*\d+)*\]", "", msg.content)
-            conversation_text.append(f"Assistant: {content}")
-    
-    summary_prompt = (
-        "You are summarizing a conversation. Create a concise, factual summary "
-        "of the following conversation. Do NOT include any sources, URLs, or citations. "
-        "Focus only on the key topics discussed and important information exchanged. "
-        "Keep it brief (2-3 sentences max).\n\n"
-        f"Conversation:\n{chr(10).join(conversation_text)}\n\n"
-        "Summary:"
-    )
-    
-    response = llm.invoke([HumanMessage(content=summary_prompt)])
-    summary = response.content if hasattr(response, "content") else str(response)
-    return summary.strip()
-
-
 def _strip_source_lines(answer: str) -> str:
     cleaned_lines = []
     for line in answer.splitlines():
@@ -106,150 +84,6 @@ def _strip_source_lines(answer: str) -> str:
             continue
         cleaned_lines.append(line)
     return "\n".join(cleaned_lines).strip()
-
-# ----------------------------
-# Simple router before RAG
-# ----------------------------
-
-ROUTER_MIN_CHARS = 12
-ROUTER_MIN_WORDS = 3
-
-_META_PATTERNS: tuple[str, ...] = (
-    # FR
-    r"\b(résume|resume|résumer|resumer)\b.*\b(derni(è|e)re|dernier|last)\b",
-    r"\b(historique|historique\s+du\s+chat|history)\b",
-    r"\b(ma|mon|mes)\b.*\b(derni(è|e)re|dernier|last)\b.*\b(question|réponse|reponse|message)\b",
-    # EN
-    r"\b(summarize|summary)\b.*\b(last|previous)\b",
-    r"\bwhat\s+did\s+i\s+ask\b|\bwhat\s+was\s+my\s+last\b",
-)
-
-
-def _is_meta_query(text: str) -> bool:
-    q = (text or "").strip().lower()
-    return any(re.search(p, q) for p in _META_PATTERNS)
-
-
-def _is_too_vague(text: str) -> bool:
-    q = (text or "").strip()
-    if len(q) < ROUTER_MIN_CHARS:
-        return True
-    words = re.findall(r"\w+", q, flags=re.UNICODE)
-    return len(words) < ROUTER_MIN_WORDS
-
-
-def _get_docs_preflight(
-    retriever: Any,
-    question: str,
-    *,
-    retrieval_k: int | None,
-    score_threshold: float | None,
-) -> list:
-    """Même logique que RagChat._get_docs, mais utilisable par le routeur (hors classe)."""
-    if score_threshold is None:
-        if hasattr(retriever, "invoke"):
-            return retriever.invoke(question)
-        return retriever.get_relevant_documents(question)
-
-    vectorstore = getattr(retriever, "vectorstore", None)
-    if vectorstore and hasattr(vectorstore, "similarity_search_with_score"):
-        k = retrieval_k if retrieval_k is not None else getattr(retriever, "search_kwargs", {}).get("k", 4)
-        results = vectorstore.similarity_search_with_score(question, k=k)
-        docs = [doc for doc, score in results if score <= score_threshold]
-        if not docs and results:
-            best_score = min(score for _, score in results)
-            logger.info(
-                "Router: no docs under score threshold %s (best=%s).",
-                score_threshold,
-                best_score,
-            )
-        return docs
-
-    if hasattr(retriever, "invoke"):
-        return retriever.invoke(question)
-    return retriever.get_relevant_documents(question)
-
-
-def route(
-    question: str,
-    history: list[BaseMessage],
-    retriever: Any,
-    *,
-    retrieval_k: int | None = None,
-    score_threshold: float | None = None,
-) -> tuple[str, dict[str, Any]]:
-    """
-    Returns (mode, payload) where mode in:
-      - "clarify": question too vague -> ask for clarification
-      - "memory": meta question about history -> memory-only (no retrieval)
-      - "no_docs": no relevant docs (score too low) -> fixed message
-      - "rag": proceed with RAG using retrieved docs (payload contains "docs")
-    """
-    q = (question or "").strip()
-
-    if _is_meta_query(q):
-        return "memory", {"reason": "meta_query"}
-
-    if _is_too_vague(q):
-        return "clarify", {
-            "answer": (
-                "Ta question est un peu vague. Peux-tu préciser ce que tu cherches "
-                "(thème, chapitre, contexte) dans le manuel de gestion UQAC ?"
-            )
-        }
-
-    docs = _get_docs_preflight(
-        retriever,
-        q,
-        retrieval_k=retrieval_k,
-        score_threshold=score_threshold,
-    )
-
-    if not docs:
-        return "no_docs", {"answer": "Je ne trouve pas l’information dans le manuel."}
-
-    return "rag", {"docs": docs}
-
-
-def answer_from_memory_only(question: str, history: list[BaseMessage], llm: ChatOllama) -> str:
-    """Répond uniquement à partir de l'historique (pas de retrieval)."""
-    if not history:
-        return "Je n’ai pas encore d’historique dans cette session."
-
-    q = (question or "").strip().lower()
-
-    # Si l'utilisateur demande un résumé de la conversation entière
-    if re.search(r"\b(résume|resume|summary|summarize)\b", q) and re.search(
-        r"\b(conversation|chat|historique|history)\b", q
-    ):
-        return summarize_history(history, llm)
-
-    # Sinon, on renvoie la dernière question/réponse.
-    last_user = None
-    last_ai = None
-    for msg in reversed(history):
-        if last_ai is None and isinstance(msg, AIMessage):
-            # on enlève [1], [2]... pour la lisibilité
-            last_ai = re.sub(r"\[\d+(?:,\s*\d+)*\]", "", msg.content).strip()
-        if last_user is None and isinstance(msg, HumanMessage):
-            last_user = msg.content
-        if last_user and last_ai:
-            break
-
-    if not last_user and not last_ai:
-        return "Je ne trouve pas d’éléments exploitables dans l’historique."
-
-    wants_q = bool(re.search(r"\b(question|ask)\b", q))
-    wants_a = bool(re.search(r"\b(réponse|reponse|answer)\b", q))
-
-    if wants_q and not wants_a:
-        return f"Dernière question : {last_user}" if last_user else "Je ne trouve pas de dernière question."
-    if wants_a and not wants_q:
-        return f"Dernière réponse : {last_ai}" if last_ai else "Je ne trouve pas de dernière réponse."
-
-    if last_user and last_ai:
-        return f"Dernière question : {last_user}\n\nDernière réponse : {last_ai}"
-    return last_user or last_ai
 
 
 class RagChat:
@@ -276,63 +110,13 @@ class RagChat:
         self.score_threshold = score_threshold
 
     def _get_docs(self, question: str) -> list:
-        # Support both old and new retriever interfaces.
-        if self.score_threshold is None:
-            if hasattr(self.retriever, "invoke"):
-                return self.retriever.invoke(question)
-            return self.retriever.get_relevant_documents(question)
-
-        vectorstore = getattr(self.retriever, "vectorstore", None)
-        if vectorstore and hasattr(vectorstore, "similarity_search_with_score"):
-            if self.retrieval_k is not None:
-                k = self.retrieval_k
-            else:
-                k = getattr(self.retriever, "search_kwargs", {}).get("k", 4)
-            results = vectorstore.similarity_search_with_score(question, k=k)
-            docs = [doc for doc, score in results if score <= self.score_threshold]
-            if not docs and results:
-                best_score = min(score for _, score in results)
-                logger.info(
-                    "No documents under score threshold %s (best=%s).",
-                    self.score_threshold,
-                    best_score,
-                )
-            logger.info("Retrieved %s documents after applying score threshold.", len(docs))
-            return docs
-
-        if hasattr(self.retriever, "invoke"):
-            return self.retriever.invoke(question)
-        return self.retriever.get_relevant_documents(question)
-
-    # def ask(
-    #     self,
-    #     question: str,
-    #     stream: bool = False,
-    #     on_chunk: Callable[[str], None] | None = None,
-    # ) -> tuple[str, list]:
-    #     """Retrieve context and generate a cited answer."""
-    #     # Retrieve context and generate an answer with citations.
-    #     docs = self._get_docs(question)
-    #     context = format_docs(docs)
-    #     messages = self.prompt.format_messages(
-    #         input=question, context=context, history=self.history
-    #     )
-    #     if stream:
-    #         parts: list[str] = []
-    #         for chunk in self.llm.stream(messages):
-    #             text = getattr(chunk, "content", str(chunk))
-    #             if not text:
-    #                 continue
-    #             parts.append(text)
-    #             if on_chunk:
-    #                 on_chunk(text)
-    #         answer = "".join(parts)
-    #     else:
-    #         response = self.llm.invoke(messages)
-    #         answer = response.content if hasattr(response, "content") else str(response)
-    #     answer = _strip_source_lines(answer)
-    #     self._append_history(question, answer)
-    #     return answer, docs
+        return retrieve_docs(
+            self.retriever,
+            question,
+            retrieval_k=self.retrieval_k,
+            score_threshold=self.score_threshold,
+            source_label="RagChat",
+        )
     
     def ask(
         self,
@@ -341,16 +125,17 @@ class RagChat:
         on_chunk: Callable[[str], None] | None = None,
     ) -> tuple[str, list]:
         """Retrieve context and generate a cited answer."""
-        # --- NEW: decide path before running full RAG
+        # Decide the answering path before running full RAG.
         mode, payload = route(
             question,
             self.history,
             self.retriever,
+            llm=self.llm,
             retrieval_k=self.retrieval_k,
             score_threshold=self.score_threshold,
         )
 
-        # 1) Question vague -> clarification (pas de retrieval, pas de LLM)
+        # 1) Query is too vague -> ask for clarification.
         if mode == "clarify":
             answer = payload["answer"]
             if stream and on_chunk:
@@ -358,24 +143,34 @@ class RagChat:
             self._append_history(question, answer)
             return answer, []
 
-        # 2) Requête méta -> mémoire-seule (pas de retrieval)
+        # 2) Meta query -> history-only answer (no retrieval).
         if mode == "memory":
             answer = answer_from_memory_only(question, self.history, self.llm)
             if stream and on_chunk:
                 on_chunk(answer)
             self._append_history(question, answer)
             return answer, []
-        # 3) Pas de docs pertinents -> phrase fixe (pas de LLM)
+
+        # 3) Social small-talk -> answer without retrieval.
+        if mode == "chitchat":
+            answer = answer_from_chitchat(question, self.llm)
+            if stream and on_chunk:
+                on_chunk(answer)
+            self._append_history(question, answer)
+            return answer, []
+
+        # 4) No relevant docs -> return a fixed fallback message.
         if mode == "no_docs":
             answer = payload["answer"]
             if stream and on_chunk:
                 on_chunk(answer)
             self._append_history(question, answer)
             return answer, []
-        # 4) RAG normal: on réutilise les docs déjà récupérés par le routeur
+
+        # 5) Standard RAG path, reusing documents retrieved by the router.
         docs = payload["docs"]
 
-        # --- Existing RAG code (identique à avant)
+        # Existing RAG generation flow.
         context = format_docs(docs)
         messages = self.prompt.format_messages(
             input=question, context=context, history=self.history
@@ -469,8 +264,8 @@ class RagChat:
 def _extract_cited_indices(answer: str) -> set[int]:
     # Parse citations like [1] or [1, 2] from the model output.
     indices: set[int] = set()
-    for block in re.findall(r"\[([0-9,\\s]+)\\]", answer):
-        for number in re.findall(r"\\d+", block):
+    for block in re.findall(r"\[([0-9,\s]+)\]", answer):
+        for number in re.findall(r"\d+", block):
             indices.add(int(number))
     return indices
 

@@ -4,6 +4,12 @@ from __future__ import annotations
 
 import sqlite3
 
+from chatbot_uqac.compat import ensure_supported_python
+
+
+ensure_supported_python()
+
+
 from rich.console import Console
 from rich.prompt import Prompt
 
@@ -32,16 +38,20 @@ def main() -> None:
         )
         return
 
-    embeddings = build_embeddings()
-    vectorstore = load_vectorstore(embeddings)
-    retriever = vectorstore.as_retriever(search_kwargs={"k": RETRIEVAL_K})
-    llm = build_llm()
-    chat = RagChat(
-        retriever,
-        llm,
-        retrieval_k=RETRIEVAL_K,
-        score_threshold=RETRIEVAL_SCORE_THRESHOLD,
-    )
+    try:
+        embeddings = build_embeddings()
+        vectorstore = load_vectorstore(embeddings)
+        retriever = vectorstore.as_retriever(search_kwargs={"k": RETRIEVAL_K})
+        llm = build_llm()
+        chat = RagChat(
+            retriever,
+            llm,
+            retrieval_k=RETRIEVAL_K,
+            score_threshold=RETRIEVAL_SCORE_THRESHOLD,
+        )
+    except RuntimeError as e:
+        console.print(str(e), style="red")
+        return
 
     try:
         chunk_count = vectorstore._collection.count()

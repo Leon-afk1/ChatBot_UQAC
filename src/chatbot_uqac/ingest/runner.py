@@ -5,8 +5,12 @@ from __future__ import annotations
 import argparse
 import logging
 
-from langchain_core.documents import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from chatbot_uqac.compat import ensure_supported_python
+
+
+ensure_supported_python()
+
+
 from rich.console import Console
 from rich.progress import Progress
 
@@ -29,9 +33,11 @@ from chatbot_uqac.rag.vectorstore import build_embeddings, load_vectorstore
 logger = logging.getLogger(__name__)
 
 
-def build_splitter() -> RecursiveCharacterTextSplitter:
+def build_splitter():
     """Create the text splitter for chunking."""
     # Chunking keeps context sizes manageable for embedding and retrieval.
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+
     return RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP
     )

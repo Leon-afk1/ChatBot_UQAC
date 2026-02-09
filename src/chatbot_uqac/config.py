@@ -16,10 +16,17 @@ def _env_bool(name: str, default: bool = False) -> bool:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
+
+def _env_path(name: str, default: Path) -> Path:
+    raw = os.getenv(name)
+    if not raw:
+        return default
+    return Path(raw).expanduser()
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = PROJECT_ROOT / "data"
-DB_PATH = DATA_DIR / "documents.sqlite3"
-CHROMA_DIR = DATA_DIR / "chroma"
+DATA_DIR = _env_path("DATA_DIR", PROJECT_ROOT / "data")
+DB_PATH = _env_path("DB_PATH", DATA_DIR / "documents.sqlite3")
+CHROMA_DIR = _env_path("CHROMA_DIR", DATA_DIR / "chroma")
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "llama3.1")
