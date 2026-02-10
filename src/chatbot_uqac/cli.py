@@ -22,7 +22,7 @@ from chatbot_uqac.config import (
     STREAMING_ENABLED,
 )
 from chatbot_uqac.logging_config import setup_logging
-from chatbot_uqac.rag.engine import RagChat, build_llm, extract_sources
+from chatbot_uqac.rag.engine import RagChat, build_llm, extract_grouped_source_refs
 from chatbot_uqac.rag.vectorstore import build_embeddings, load_vectorstore
 
 
@@ -91,12 +91,13 @@ def main() -> None:
             answer, docs = chat.ask(question)
             console.print(f"\n{answer}\n")
 
-        # Only show sources that were cited by the model.
-        sources = extract_sources(docs, answer)
-        if sources:
+        # Show cited sources with citation indices (e.g., [1], [2]).
+        grouped_source_refs = extract_grouped_source_refs(docs, answer)
+        if grouped_source_refs:
             console.print("Sources:", style="bold")
-            for url in sources:
-                console.print(f"- {url}")
+            for indices, url in grouped_source_refs:
+                label = ",".join(str(i) for i in indices)
+                console.print(f"- [{label}] {url}")
         console.print("")
 
 

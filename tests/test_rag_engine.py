@@ -51,10 +51,46 @@ def test_extract_cited_indices_and_sources() -> None:
     answer = "Based on [1, 3], details..."
 
     indices = engine._extract_cited_indices(answer)
+    source_refs = engine.extract_source_refs(docs, answer)
     sources = engine.extract_sources(docs, answer)
 
     assert indices == {1, 3}
+    assert source_refs == [(1, "https://a"), (3, "https://c")]
     assert sources == ["https://a", "https://c"]
+
+
+def test_extract_source_refs_preserves_citation_indices_with_duplicate_urls() -> None:
+    docs = [
+        _doc("A", url="https://same"),
+        _doc("B", url="https://same"),
+        _doc("C", url="https://other"),
+    ]
+    answer = "Supported by [1, 2, 3]."
+
+    refs = engine.extract_source_refs(docs, answer)
+
+    assert refs == [(1, "https://same"), (2, "https://same"), (3, "https://other")]
+
+
+def test_group_source_refs_merges_duplicate_urls() -> None:
+    refs = [(1, "https://same"), (2, "https://same"), (3, "https://other")]
+
+    grouped = engine.group_source_refs(refs)
+
+    assert grouped == [([1, 2], "https://same"), ([3], "https://other")]
+
+
+def test_extract_grouped_source_refs_uses_cited_indices() -> None:
+    docs = [
+        _doc("A", url="https://same"),
+        _doc("B", url="https://same"),
+        _doc("C", url="https://other"),
+    ]
+    answer = "Supported by [2, 3]."
+
+    grouped = engine.extract_grouped_source_refs(docs, answer)
+
+    assert grouped == [([2], "https://same"), ([3], "https://other")]
 
 
 def test_ragchat_ask_runs_rag_path_and_updates_history() -> None:

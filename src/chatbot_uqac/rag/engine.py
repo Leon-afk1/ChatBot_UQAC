@@ -270,16 +270,50 @@ def _extract_cited_indices(answer: str) -> set[int]:
     return indices
 
 
-def extract_sources(docs: Iterable, answer: str | None = None) -> list[str]:
-    """Return source URLs, optionally filtered to cited indices."""
-    # If the answer cites sources, only return those URLs.
+def extract_source_refs(docs: Iterable, answer: str | None = None) -> list[tuple[int, str]]:
+    """Return (citation_index, URL) pairs, optionally filtered to cited indices."""
     cited = _extract_cited_indices(answer) if answer else set()
-    sources: list[str] = []
-    seen = set()
+    refs: list[tuple[int, str]] = []
     for idx, doc in enumerate(docs, start=1):
         if cited and idx not in cited:
             continue
         url = (doc.metadata or {}).get("url")
+        if url:
+            refs.append((idx, url))
+    return refs
+
+
+def group_source_refs(source_refs: Iterable[tuple[int, str]]) -> list[tuple[list[int], str]]:
+    """Group citation indices by URL while preserving URL order."""
+    grouped: dict[str, list[int]] = {}
+    ordered_urls: list[str] = []
+
+    for idx, url in source_refs:
+        if not url:
+            continue
+        if url not in grouped:
+            grouped[url] = []
+            ordered_urls.append(url)
+        if idx not in grouped[url]:
+            grouped[url].append(idx)
+
+    return [(grouped[url], url) for url in ordered_urls]
+
+
+def extract_grouped_source_refs(
+    docs: Iterable,
+    answer: str | None = None,
+) -> list[tuple[list[int], str]]:
+    """Return grouped citation indices by unique URL."""
+    return group_source_refs(extract_source_refs(docs, answer))
+
+
+def extract_sources(docs: Iterable, answer: str | None = None) -> list[str]:
+    """Return unique source URLs, optionally filtered to cited indices."""
+    refs = extract_source_refs(docs, answer)
+    sources: list[str] = []
+    seen = set()
+    for _, url in refs:
         if url and url not in seen:
             sources.append(url)
             seen.add(url)

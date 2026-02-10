@@ -24,6 +24,34 @@ def _short_text(text: str, limit: int = 120) -> str:
     return f"{compact[:limit]}..."
 
 
+def _log_retrieved_docs_debug(
+    source_label: str,
+    question: str,
+    docs: list,
+) -> None:
+    """Emit per-document retrieval details when DEBUG logging is enabled."""
+    if not logger.isEnabledFor(logging.DEBUG):
+        return
+
+    logger.debug(
+        "%s: docs retrieved question=%r count=%s",
+        source_label,
+        _short_text(question),
+        len(docs),
+    )
+    for idx, doc in enumerate(docs, start=1):
+        metadata = getattr(doc, "metadata", {}) or {}
+        title = metadata.get("title", "")
+        url = metadata.get("url", "")
+        logger.debug(
+            "%s: doc[%s] title=%r url=%r",
+            source_label,
+            idx,
+            title,
+            url,
+        )
+
+
 def summarize_history(history: list[BaseMessage], llm: ChatOllama) -> str:
     """Generate a factual summary of the conversation history."""
     if not history:
@@ -150,8 +178,11 @@ def retrieve_docs(
     """Retrieve documents with optional score filtering."""
     if score_threshold is None:
         if hasattr(retriever, "invoke"):
-            return retriever.invoke(question)
-        return retriever.get_relevant_documents(question)
+            docs = list(retriever.invoke(question))
+        else:
+            docs = list(retriever.get_relevant_documents(question))
+        _log_retrieved_docs_debug(source_label, question, docs)
+        return docs
 
     vectorstore = getattr(retriever, "vectorstore", None)
     if vectorstore and hasattr(vectorstore, "similarity_search_with_score"):
@@ -173,11 +204,15 @@ def retrieve_docs(
             source_label,
             len(docs),
         )
+        _log_retrieved_docs_debug(source_label, question, docs)
         return docs
 
     if hasattr(retriever, "invoke"):
-        return retriever.invoke(question)
-    return retriever.get_relevant_documents(question)
+        docs = list(retriever.invoke(question))
+    else:
+        docs = list(retriever.get_relevant_documents(question))
+    _log_retrieved_docs_debug(source_label, question, docs)
+    return docs
 
 
 def route(

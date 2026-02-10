@@ -24,7 +24,7 @@ from chatbot_uqac.config import (
     SUMMARIZE_THRESHOLD,
 )
 from chatbot_uqac.logging_config import setup_logging
-from chatbot_uqac.rag.engine import RagChat, build_llm, extract_sources
+from chatbot_uqac.rag.engine import RagChat, build_llm, extract_grouped_source_refs
 from chatbot_uqac.rag.vectorstore import build_embeddings, load_vectorstore
 
 
@@ -35,6 +35,29 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+
+def _sources_links_html(sources: list | None) -> str:
+    if not sources:
+        return ""
+
+    rows: list[str] = []
+    for entry in sources:
+        if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+            continue
+        indices, url = entry
+        if not url:
+            continue
+        if isinstance(indices, int):
+            label = str(indices)
+        elif isinstance(indices, (list, tuple)):
+            label = ",".join(str(i) for i in indices)
+        else:
+            label = str(indices)
+        rows.append(
+            f'[{label}] <a href="{url}" target="_blank" style="color: #548427;">{url}</a>'
+        )
+    return "<br>".join(rows)
 
 # Chargement du CSS personnalisé
 css_file = Path(__file__).parent / "style.css"
@@ -161,8 +184,9 @@ for message in st.session_state.messages:
         sources = message.get("sources")
         sources_html = ""
         if sources:
-            sources_links = "<br>".join([f'<a href="{s}" target="_blank" style="color: #548427;">{s}</a>' for s in sources])
-            sources_html = f'<div style="font-size: 0.85rem; margin-top: 12px; padding-top: 8px; border-top: 1px solid #ddd;">📚 <b>Sources:</b><br>{sources_links}</div>'
+            sources_links = _sources_links_html(sources)
+            if sources_links:
+                sources_html = f'<div style="font-size: 0.85rem; margin-top: 12px; padding-top: 8px; border-top: 1px solid #ddd;">📚 <b>Sources:</b><br>{sources_links}</div>'
         st.markdown(f'''
         <div style="background-color: #f4f4f4; border-left: 4px solid #548427; border-radius: 12px; padding: 1rem 1.5rem; margin-bottom: 1rem; display: flex; align-items: flex-start; gap: 12px;">
             <div style="background-color: #548427; border-radius: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
@@ -224,11 +248,12 @@ if processing:
                 st.session_state.busy = False
                 st.session_state.pending_question = None
         
-        # Only show sources that were cited by the model.
-        sources = extract_sources(docs, answer)
+        # Show cited sources grouped by unique URL (e.g., [1,2]).
+        sources = extract_grouped_source_refs(docs, answer)
         if sources:
-            sources_links = "<br>".join([f'<a href="{s}" target="_blank">{s}</a>' for s in sources])
-            st.markdown(f'<div class="source-container">📚 <b>Sources:</b><br>{sources_links}</div>', unsafe_allow_html=True)
+            sources_links = _sources_links_html(sources)
+            if sources_links:
+                st.markdown(f'<div class="source-container">📚 <b>Sources:</b><br>{sources_links}</div>', unsafe_allow_html=True)
              
     st.session_state.messages.append(
         {"role": "assistant", "content": answer, "sources": sources}
