@@ -21,7 +21,7 @@ from chatbot_uqac.rag.routing import (
 
 
 SYSTEM_PROMPT = (
-    "You are a helpful assistant for the UQAC management guide. "
+    "You are Gaston, a helpful assistant for the UQAC management guide. "
     "Use only the provided context. If the answer is not in the context, "
     "say you do not know. Keep answers concise. "
     "Cite sources using square brackets like [1] based on the context numbering. "
@@ -233,6 +233,11 @@ class RagChat:
         elif len(self.history) > self.max_history_messages * 2:
             excess = len(self.history) - self.max_history_messages * 2
             self.history = self.history[excess:]
+            logger.debug(
+                "History truncated to %s messages (max_history_messages=%s).",
+                len(self.history),
+                self.max_history_messages,
+            )
 
     def _summarize_and_compress_history(self) -> bool:
         """Summarize old messages and keep only recent ones + summary."""

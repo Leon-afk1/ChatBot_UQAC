@@ -49,7 +49,7 @@ RETRIEVAL_SCORE_THRESHOLD = float(_threshold_raw) if _threshold_raw else None
 STREAMING_ENABLED = _env_bool("STREAMING_ENABLED", True)
 
 # Memory and summarization settings
-HISTORY_MAX_MESSAGES = int(os.getenv("HISTORY_MAX_MESSAGES", "5"))
+HISTORY_MAX_MESSAGES = int(os.getenv("HISTORY_MAX_MESSAGES", "7"))
 SUMMARIZE_THRESHOLD = int(os.getenv("SUMMARIZE_THRESHOLD", "14"))
 KEEP_RECENT_MESSAGES = int(os.getenv("KEEP_RECENT_MESSAGES", "6"))
 

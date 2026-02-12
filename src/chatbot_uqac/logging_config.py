@@ -38,3 +38,5 @@ def _configure_noisy_loggers() -> None:
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("PIL").setLevel(logging.WARNING)
     logging.getLogger("posthog").setLevel(logging.WARNING)
+    logging.getLogger("MARKDOWN").setLevel(logging.WARNING)
+    logging.getLogger("markdown").setLevel(logging.WARNING)

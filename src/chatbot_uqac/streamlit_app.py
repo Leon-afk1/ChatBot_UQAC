@@ -11,6 +11,7 @@ from chatbot_uqac.compat import ensure_supported_python
 ensure_supported_python()
 
 import streamlit as st
+import markdown
 
 from chatbot_uqac.config import (
     CHROMA_DIR,
@@ -58,6 +59,16 @@ def _sources_links_html(sources: list | None) -> str:
             f'[{label}] <a href="{url}" target="_blank" style="color: #548427;">{url}</a>'
         )
     return "<br>".join(rows)
+
+
+def _render_markdown_html(text: str) -> str:
+    if not text:
+        return ""
+    return markdown.markdown(
+        text,
+        extensions=["extra", "sane_lists"],
+        output_format="html5",
+    )
 
 # Chargement du CSS personnalisé
 css_file = Path(__file__).parent / "style.css"
@@ -186,6 +197,7 @@ for message in st.session_state.messages:
     elif message["role"] == "assistant":
         sources = message.get("sources")
         sources_html = ""
+        content_html = _render_markdown_html(message["content"])
         if sources:
             sources_links = _sources_links_html(sources)
             if sources_links:
@@ -195,7 +207,7 @@ for message in st.session_state.messages:
             <div style="background-color: #548427; border-radius: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg>
             </div>
-            <div style="color: #333; margin: 0; flex-grow: 1;">{message["content"]}{sources_html}</div>
+            <div style="color: #333; margin: 0; flex-grow: 1;">{content_html}{sources_html}</div>
         </div>
         ''', unsafe_allow_html=True)
     elif message["role"] == "system":

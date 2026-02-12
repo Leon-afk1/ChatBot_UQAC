@@ -5,87 +5,25 @@ from __future__ import annotations
 import json
 import logging
 import re
-import sqlite3
-from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 from langchain_ollama import ChatOllama
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
-from chatbot_uqac.config import DB_PATH
+from chatbot_uqac.rag.lexical_retrieval import (
+    extract_query_terms as _extract_query_terms,
+    retrieve_lexical_docs as _retrieve_lexical_docs,
+)
+from chatbot_uqac.rag.retrieval import (
+    retrieve_docs as _retrieve_docs_impl,
+    retrieve_docs_hybrid as _retrieve_docs_hybrid_impl,
+)
+
 
 logger = logging.getLogger(__name__)
 
 ROUTER_INTENT_CONFIDENCE = 0.65
 _ALLOWED_INTENTS = {"domain", "memory", "chitchat", "unclear"}
-_DEFAULT_RETRIEVAL_K = 4
-_RRF_K = 60
-_DENSE_POOL_MULTIPLIER = 2
-_MAX_CHUNKS_PER_URL = 2
-_LEXICAL_CANDIDATE_LIMIT = 8
-_DEBUG_DOC_PREVIEW_DEFAULT = 1
-_DEBUG_DOC_PREVIEW_FINAL = 4
-_LEXICAL_MIN_TERM_LEN = 3
-_STOPWORDS = {
-    "a",
-    "au",
-    "aux",
-    "avec",
-    "ce",
-    "ces",
-    "dans",
-    "de",
-    "des",
-    "du",
-    "elle",
-    "elles",
-    "en",
-    "et",
-    "est",
-    "il",
-    "ils",
-    "je",
-    "la",
-    "le",
-    "les",
-    "leur",
-    "lui",
-    "mais",
-    "me",
-    "mes",
-    "moi",
-    "mon",
-    "ne",
-    "nos",
-    "notre",
-    "nous",
-    "on",
-    "ou",
-    "par",
-    "pas",
-    "pour",
-    "qu",
-    "que",
-    "qui",
-    "sa",
-    "se",
-    "ses",
-    "son",
-    "sur",
-    "ta",
-    "te",
-    "tes",
-    "toi",
-    "ton",
-    "tu",
-    "un",
-    "une",
-    "vos",
-    "votre",
-    "vous",
-}
-_FTS_READY = False
 
 
 def _short_text(text: str, limit: int = 120) -> str:
@@ -95,47 +33,11 @@ def _short_text(text: str, limit: int = 120) -> str:
     return f"{compact[:limit]}..."
 
 
-def _log_retrieved_docs_debug(
-    source_label: str,
-    question: str,
-    docs: list,
-) -> None:
-    """Emit per-document retrieval details when DEBUG logging is enabled."""
-    if not logger.isEnabledFor(logging.DEBUG):
-        return
-
-    logger.debug(
-        "%s: docs retrieved question=%r count=%s",
-        source_label,
-        _short_text(question),
-        len(docs),
-    )
-    preview_count = _DEBUG_DOC_PREVIEW_FINAL if source_label.endswith(":hybrid") else _DEBUG_DOC_PREVIEW_DEFAULT
-    for idx, doc in enumerate(docs[:preview_count], start=1):
-        metadata = getattr(doc, "metadata", {}) or {}
-        title = metadata.get("title", "")
-        url = metadata.get("url", "")
-        logger.debug(
-            "%s: doc[%s] title=%r url=%r",
-            source_label,
-            idx,
-            title,
-            url,
-        )
-    if len(docs) > preview_count:
-        logger.debug(
-            "%s: ... %s more docs omitted in debug output",
-            source_label,
-            len(docs) - preview_count,
-        )
-
-
 def summarize_history(history: list[BaseMessage], llm: ChatOllama) -> str:
     """Generate a factual summary of the conversation history."""
     if not history:
         return ""
 
-    # Build a compact transcript for summarization.
     conversation_text: list[str] = []
     for msg in history:
         if isinstance(msg, HumanMessage):
@@ -245,193 +147,6 @@ def classify_intent(
     return intent, confidence
 
 
-def _extract_query_terms(question: str, limit: int = 8) -> list[str]:
-    terms: list[str] = []
-    seen: set[str] = set()
-    for token in re.findall(r"\b[\w'-]+\b", (question or "").lower()):
-        for part in re.split(r"[-']", token):
-            part = part.strip("-'")
-            if len(part) < _LEXICAL_MIN_TERM_LEN or part in _STOPWORDS:
-                continue
-            if part in seen:
-                continue
-            seen.add(part)
-            terms.append(part)
-            if len(terms) >= limit:
-                return terms
-    return terms
-
-
-def _doc_key(doc: Any) -> tuple[str, str]:
-    metadata = getattr(doc, "metadata", {}) or {}
-    url = str(metadata.get("url", "")).strip()
-    content = str(getattr(doc, "page_content", "") or "")
-    return url, content[:240]
-
-
-def _with_retrieval_source(doc: Any, source: str, score: float | None = None) -> Any:
-    metadata = dict(getattr(doc, "metadata", {}) or {})
-    metadata["retrieval_source"] = source
-    if score is not None:
-        metadata["hybrid_score"] = round(score, 6)
-    content = getattr(doc, "page_content", "")
-    return SimpleNamespace(page_content=content, metadata=metadata)
-
-
-def _fetch_lexical_docs_fts(conn: sqlite3.Connection, question: str, limit: int) -> list:
-    global _FTS_READY
-    if not _FTS_READY:
-        conn.execute(
-            "CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(url UNINDEXED, title, content)"
-        )
-        fts_count = conn.execute("SELECT COUNT(*) FROM documents_fts").fetchone()[0]
-        if fts_count == 0:
-            conn.execute(
-                "INSERT INTO documents_fts (url, title, content) SELECT url, title, content FROM documents"
-            )
-            conn.commit()
-        _FTS_READY = True
-
-    terms = _extract_query_terms(question)
-    match_parts = [f"{term}*" for term in terms]
-    if not match_parts:
-        return []
-
-    rows = conn.execute(
-        """
-        SELECT url, title, content, bm25(documents_fts) AS rank
-        FROM documents_fts
-        WHERE documents_fts MATCH ?
-        ORDER BY rank ASC
-        LIMIT ?
-        """,
-        (" OR ".join(match_parts), limit),
-    ).fetchall()
-    docs: list = []
-    for row in rows:
-        docs.append(
-            SimpleNamespace(
-                page_content=(row[2] or "")[:1200],
-                metadata={
-                    "url": row[0] or "",
-                    "title": row[1] or "",
-                    "retrieval_source": "lexical_fts",
-                },
-            )
-        )
-    return docs
-
-
-def _fetch_lexical_docs_like(conn: sqlite3.Connection, question: str, limit: int) -> list:
-    terms = _extract_query_terms(question)
-    if not terms:
-        return []
-
-    conditions: list[str] = []
-    score_parts: list[str] = []
-    condition_params: list[str] = []
-    score_params: list[str] = []
-    for term in terms:
-        pattern = f"%{term}%"
-        conditions.append("(LOWER(title) LIKE ? OR LOWER(content) LIKE ?)")
-        condition_params.extend([pattern, pattern])
-        score_parts.append("(CASE WHEN LOWER(title) LIKE ? THEN 3 ELSE 0 END)")
-        score_parts.append("(CASE WHEN LOWER(content) LIKE ? THEN 1 ELSE 0 END)")
-        score_params.extend([pattern, pattern])
-
-    if not conditions:
-        return []
-
-    sql = f"""
-        SELECT url, title, content, ({' + '.join(score_parts)}) AS lexical_score
-        FROM documents
-        WHERE {' OR '.join(conditions)}
-        ORDER BY lexical_score DESC
-        LIMIT ?
-    """
-    rows = conn.execute(sql, (*score_params, *condition_params, limit)).fetchall()
-    docs: list = []
-    for row in rows:
-        docs.append(
-            SimpleNamespace(
-                page_content=(row[2] or "")[:1200],
-                metadata={
-                    "url": row[0] or "",
-                    "title": row[1] or "",
-                    "retrieval_source": "lexical_like",
-                },
-            )
-        )
-    return docs
-
-
-def _retrieve_lexical_docs(question: str, limit: int) -> list:
-    db_path = Path(DB_PATH)
-    if not db_path.exists():
-        return []
-
-    try:
-        with sqlite3.connect(db_path) as conn:
-            docs = _fetch_lexical_docs_fts(conn, question, limit)
-            if docs:
-                _log_retrieved_docs_debug("Router:lexical_fts", question, docs)
-                return docs
-    except sqlite3.OperationalError as exc:
-        logger.debug(
-            "FTS lexical retrieval failed (%s); using LIKE fallback.",
-            str(exc),
-        )
-    except sqlite3.Error as exc:
-        logger.debug(
-            "FTS lexical retrieval error (%s); using LIKE fallback.",
-            str(exc),
-        )
-
-    try:
-        with sqlite3.connect(db_path) as conn:
-            docs = _fetch_lexical_docs_like(conn, question, limit)
-            _log_retrieved_docs_debug("Router:lexical_like", question, docs)
-            return docs
-    except sqlite3.Error as exc:
-        logger.debug("LIKE lexical retrieval failed (%s).", str(exc))
-        return []
-
-
-def _fuse_rrf(
-    rank_lists: list[tuple[str, list]],
-    *,
-    final_k: int,
-    max_chunks_per_url: int,
-) -> list:
-    fused: dict[tuple[str, str], dict[str, Any]] = {}
-
-    for label, docs in rank_lists:
-        for rank, doc in enumerate(docs, start=1):
-            key = _doc_key(doc)
-            if key not in fused:
-                fused[key] = {"doc": doc, "score": 0.0, "signals": set()}
-            fused[key]["score"] += 1.0 / (_RRF_K + rank)
-            fused[key]["signals"].add(label)
-
-    ranked = sorted(fused.values(), key=lambda item: item["score"], reverse=True)
-    selected: list = []
-    per_url: dict[str, int] = {}
-    for item in ranked:
-        doc = item["doc"]
-        metadata = getattr(doc, "metadata", {}) or {}
-        url = str(metadata.get("url", "")).strip()
-        if url:
-            count = per_url.get(url, 0)
-            if count >= max_chunks_per_url:
-                continue
-            per_url[url] = count + 1
-        sources = "+".join(sorted(item["signals"]))
-        selected.append(_with_retrieval_source(doc, sources, score=item["score"]))
-        if len(selected) >= final_k:
-            break
-    return selected
-
-
 def rewrite_retrieval_query(
     question: str,
     history: list[BaseMessage],
@@ -513,44 +228,14 @@ def retrieve_docs(
     score_threshold: float | None,
     source_label: str = "Retriever",
 ) -> list:
-    """Retrieve documents with optional score filtering."""
-    if score_threshold is None:
-        if hasattr(retriever, "invoke"):
-            docs = list(retriever.invoke(question))
-        else:
-            docs = list(retriever.get_relevant_documents(question))
-        _log_retrieved_docs_debug(source_label, question, docs)
-        return docs
-
-    vectorstore = getattr(retriever, "vectorstore", None)
-    if vectorstore and hasattr(vectorstore, "similarity_search_with_score"):
-        k = retrieval_k if retrieval_k is not None else getattr(
-            retriever, "search_kwargs", {}
-        ).get("k", 4)
-        results = vectorstore.similarity_search_with_score(question, k=k)
-        docs = [doc for doc, score in results if score <= score_threshold]
-        if not docs and results:
-            best_score = min(score for _, score in results)
-            logger.info(
-                "%s: no docs under score threshold %s (best=%s).",
-                source_label,
-                score_threshold,
-                best_score,
-            )
-        logger.info(
-            "%s: retrieved %s documents after score filtering.",
-            source_label,
-            len(docs),
-        )
-        _log_retrieved_docs_debug(source_label, question, docs)
-        return docs
-
-    if hasattr(retriever, "invoke"):
-        docs = list(retriever.invoke(question))
-    else:
-        docs = list(retriever.get_relevant_documents(question))
-    _log_retrieved_docs_debug(source_label, question, docs)
-    return docs
+    """Backward-compatible wrapper around retrieval helpers."""
+    return _retrieve_docs_impl(
+        retriever,
+        question,
+        retrieval_k=retrieval_k,
+        score_threshold=score_threshold,
+        source_label=source_label,
+    )
 
 
 def retrieve_docs_hybrid(
@@ -562,48 +247,20 @@ def retrieve_docs_hybrid(
     score_threshold: float | None,
     source_label: str = "Router",
 ) -> list:
-    """Hybrid retrieval: dense over multiple queries + lexical fallback + RRF."""
-    base_k = retrieval_k or _DEFAULT_RETRIEVAL_K
-    dense_pool_k = max(base_k, _DEFAULT_RETRIEVAL_K) * _DENSE_POOL_MULTIPLIER
-
-    queries: list[str] = []
-    for query in (question, rewritten_question):
-        q = (query or "").strip()
-        if q and q not in queries:
-            queries.append(q)
-    if not queries:
-        return []
-
-    dense_rank_lists: list[tuple[str, list]] = []
-    for idx, query in enumerate(queries, start=1):
-        dense_docs = retrieve_docs(
-            retriever,
-            query,
-            retrieval_k=dense_pool_k,
-            score_threshold=score_threshold,
-            source_label=f"{source_label}:dense[{idx}]",
-        )
-        dense_rank_lists.append((f"dense_q{idx}", dense_docs))
-
-    lexical_limit = max(base_k, _LEXICAL_CANDIDATE_LIMIT)
-    lexical_docs = _retrieve_lexical_docs(rewritten_question or question, lexical_limit)
-    rank_lists = dense_rank_lists + [("lexical", lexical_docs)]
-    fused_docs = _fuse_rrf(
-        rank_lists,
-        final_k=base_k,
-        max_chunks_per_url=_MAX_CHUNKS_PER_URL,
+    """Backward-compatible wrapper around hybrid retrieval helpers."""
+    return _retrieve_docs_hybrid_impl(
+        retriever,
+        question=question,
+        rewritten_question=rewritten_question,
+        retrieval_k=retrieval_k,
+        score_threshold=score_threshold,
+        source_label=source_label,
+        lexical_retriever=lambda q, lim: _retrieve_lexical_docs(
+            q,
+            lim,
+            source_label=source_label,
+        ),
     )
-
-    logger.info(
-        "%s: hybrid retrieval dense_queries=%s dense_docs=%s lexical_docs=%s fused_docs=%s",
-        source_label,
-        len(queries),
-        sum(len(docs) for _, docs in dense_rank_lists),
-        len(lexical_docs),
-        len(fused_docs),
-    )
-    _log_retrieved_docs_debug(f"{source_label}:hybrid", rewritten_question or question, fused_docs)
-    return fused_docs
 
 
 def route(
@@ -660,7 +317,6 @@ def route(
             }
 
     retrieval_query = rewrite_retrieval_query(q, history, llm)
-    # Try retrieval first. If relevant docs exist, proceed with RAG even for short queries.
     docs = retrieve_docs_hybrid(
         retriever,
         question=q,
@@ -722,7 +378,6 @@ def answer_from_memory_only(
     if not history:
         return "Je n’ai pas encore d’historique dans cette session."
 
-    # Build a compact plain-text transcript for memory-only answering.
     transcript_lines: list[str] = []
     for msg in history:
         if isinstance(msg, HumanMessage):
@@ -750,7 +405,7 @@ def answer_from_memory_only(
                 f"Conversation history:\n{transcript}\n\n"
                 f"User question about this history:\n{question}"
             )
-        )
+        ),
     ]
 
     response = llm.invoke(prompt_messages)

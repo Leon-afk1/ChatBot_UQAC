@@ -52,7 +52,8 @@ Files: `src/chatbot_uqac/ingest.py`, `src/chatbot_uqac/rag/vectorstore.py`
 
 ## Retrieval and RAG answer generation
 
-Files: `src/chatbot_uqac/rag/engine.py`, `src/chatbot_uqac/rag/routing.py`
+Files: `src/chatbot_uqac/rag/engine.py`, `src/chatbot_uqac/rag/routing.py`,
+`src/chatbot_uqac/rag/retrieval.py`, `src/chatbot_uqac/rag/lexical_retrieval.py`
 
 - Retrieval now uses a lightweight hybrid pipeline:
   - Dense retrieval from Chroma.
@@ -65,15 +66,19 @@ Files: `src/chatbot_uqac/rag/engine.py`, `src/chatbot_uqac/rag/routing.py`
 - `RETRIEVAL_K` still controls the final number of chunks sent to generation.
 - When a score threshold is configured, dense candidates are filtered with
   score <= threshold (Chroma distance: lower is better).
-- Retrieval helper logic is centralized in `routing.py` (`retrieve_docs`,
-  `retrieve_docs_hybrid`) and reused by the router.
+- Retrieval helpers are implemented in `retrieval.py` (`retrieve_docs`,
+  `retrieve_docs_hybrid`), while lexical SQL/FTS logic is isolated in
+  `lexical_retrieval.py`.
+- `routing.py` keeps routing/intent logic and delegates retrieval to these
+  modules (with backward-compatible wrappers).
 - A system prompt tells the model to use only the provided context.
 - The answer is produced by a "stuff" chain (all retrieved docs concatenated).
 - Sources are extracted from chunk metadata and printed in the UI.
 
 ## Query routing layer
 
-Files: `src/chatbot_uqac/rag/routing.py`, `src/chatbot_uqac/rag/engine.py`
+Files: `src/chatbot_uqac/rag/routing.py`, `src/chatbot_uqac/rag/engine.py`,
+`src/chatbot_uqac/rag/retrieval.py`
 
 - Before standard RAG generation, each question goes through a lightweight
   router (`route`).
