@@ -35,6 +35,28 @@ ollama pull llama3.1
 ollama pull nomic-embed-text
 ```
 
+Model guidance:
+- Choose `OLLAMA_CHAT_MODEL` based on your available resources (RAM/VRAM and expected latency).
+- `llama3.1` is a good default baseline for this project (about 4.9GB).
+- If resources are limited, pick a smaller chat model.
+- If you have more resources, you can use a larger model such as `gpt-oss:20b`.
+
+Optional larger model example:
+
+```bash
+ollama pull gpt-oss:20b
+```
+
+GPU usage:
+- Ollama uses GPU when available and properly configured (drivers/CUDA/ROCm depending on your setup).
+- Verify what Ollama is using with:
+
+```bash
+ollama ps
+```
+
+- Check the processor/device column to confirm it is running on GPU rather than CPU.
+
 5) Configure optional env vars:
 
 ```bash
