@@ -31,6 +31,13 @@ SYSTEM_PROMPT = (
 logger = logging.getLogger(__name__)
 
 
+def _short_text(text: str, limit: int = 220) -> str:
+    compact = re.sub(r"\s+", " ", (text or "")).strip()
+    if len(compact) <= limit:
+        return compact
+    return f"{compact[:limit]}..."
+
+
 def build_llm() -> ChatOllama:
     """Create the local chat model served by Ollama."""
     # Local chat model served by Ollama.
@@ -108,6 +115,7 @@ class RagChat:
         self.keep_recent = keep_recent  # Number of recent messages to keep (must be even)
         self.retrieval_k = retrieval_k
         self.score_threshold = score_threshold
+        self.last_turn_summarized = False
 
     def _get_docs(self, question: str) -> list:
         return retrieve_docs(
@@ -125,6 +133,7 @@ class RagChat:
         on_chunk: Callable[[str], None] | None = None,
     ) -> tuple[str, list]:
         """Retrieve context and generate a cited answer."""
+        self.last_turn_summarized = False
         # Decide the answering path before running full RAG.
         mode, payload = route(
             question,
@@ -198,17 +207,19 @@ class RagChat:
     def _append_history(self, question: str, answer: str) -> None:
         self.history.append(HumanMessage(content=question))
         self.history.append(AIMessage(content=answer))
+        self.last_turn_summarized = False
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("History length: %s messages", len(self.history))
-            for index, msg in enumerate(self.history):
+            start = max(0, len(self.history) - 4)
+            for index, msg in enumerate(self.history[start:], start=start):
                 if isinstance(msg, HumanMessage):
                     msg_type = "user"
                 elif isinstance(msg, AIMessage):
                     msg_type = "assistant"
                 else:
                     msg_type = "summary"
-                logger.debug("History[%s] %s: %s", index, msg_type, msg.content)
+                logger.debug("History[%s] %s: %s", index, msg_type, _short_text(msg.content))
 
         # Trigger summarization if history exceeds threshold
         if len(self.history) > self.summarize_threshold:
@@ -217,13 +228,13 @@ class RagChat:
                 len(self.history),
                 self.summarize_threshold,
             )
-            self._summarize_and_compress_history()
+            self.last_turn_summarized = self._summarize_and_compress_history()
         # Fallback: simple truncation if no summary was created
         elif len(self.history) > self.max_history_messages * 2:
             excess = len(self.history) - self.max_history_messages * 2
             self.history = self.history[excess:]
 
-    def _summarize_and_compress_history(self) -> None:
+    def _summarize_and_compress_history(self) -> bool:
         """Summarize old messages and keep only recent ones + summary."""
         # Keep only the most recent messages
         recent_messages = self.history[-self.keep_recent:]
@@ -259,6 +270,8 @@ class RagChat:
                 len(old_messages) + len(recent_messages),
                 len(self.history),
             )
+            return True
+        return False
 
 
 def _extract_cited_indices(answer: str) -> set[int]:

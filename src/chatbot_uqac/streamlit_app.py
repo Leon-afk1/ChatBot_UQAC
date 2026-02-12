@@ -147,6 +147,9 @@ if "chat" not in st.session_state:
         except RuntimeError as e:
             st.error(str(e))
             st.stop()
+elif not hasattr(st.session_state.chat, "last_turn_summarized"):
+    # Backward compatibility for existing Streamlit sessions after code updates.
+    st.session_state.chat.last_turn_summarized = False
 
 # Dataset Info Logic (Preserved)
 if "dataset_info" not in st.session_state:
@@ -180,7 +183,7 @@ for message in st.session_state.messages:
             <p style="color: white; margin: 0; flex-grow: 1;">{message["content"]}</p>
         </div>
         ''', unsafe_allow_html=True)
-    else:
+    elif message["role"] == "assistant":
         sources = message.get("sources")
         sources_html = ""
         if sources:
@@ -195,6 +198,11 @@ for message in st.session_state.messages:
             <div style="color: #333; margin: 0; flex-grow: 1;">{message["content"]}{sources_html}</div>
         </div>
         ''', unsafe_allow_html=True)
+    elif message["role"] == "system":
+        st.markdown(
+            f'<div style="font-size: 0.85rem; color: #666; margin: -4px 0 12px 44px;">{message["content"]}</div>',
+            unsafe_allow_html=True,
+        )
 
 processing = st.session_state.get("pending_question") is not None
 st.session_state.busy = processing
@@ -214,6 +222,7 @@ if question and not processing:
 if processing:
     question = st.session_state.pending_question
     st.session_state.messages.append({"role": "user", "content": question})
+    summary_expected = len(st.session_state.chat.history) + 2 > st.session_state.chat.summarize_threshold
     st.markdown(f'''
     <div style="background-color: #548427; border-left: 4px solid #3d611c; border-radius: 12px; padding: 1rem 1.5rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 12px;">
         <div style="background-color: white; border: 2px solid #3d611c; border-radius: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
@@ -227,7 +236,10 @@ if processing:
     st.markdown('<div class="assistant-loading-marker"></div>', unsafe_allow_html=True)
     
     with st.chat_message("assistant"):
-        with st.spinner("Traitement de votre demande..."):
+        spinner_text = "Traitement de votre demande..."
+        if summary_expected:
+            spinner_text = "Traitement de votre demande... (mise à jour de la mémoire)"
+        with st.spinner(spinner_text):
             try:
                 if STREAMING_ENABLED:
                     placeholder = st.empty()
@@ -254,10 +266,20 @@ if processing:
             sources_links = _sources_links_html(sources)
             if sources_links:
                 st.markdown(f'<div class="source-container">📚 <b>Sources:</b><br>{sources_links}</div>', unsafe_allow_html=True)
+
+        if getattr(st.session_state.chat, "last_turn_summarized", False):
+            st.caption("Resume de conversation mis a jour pour garder le contexte.")
              
     st.session_state.messages.append(
         {"role": "assistant", "content": answer, "sources": sources}
     )
+    if getattr(st.session_state.chat, "last_turn_summarized", False):
+        st.session_state.messages.append(
+            {
+                "role": "system",
+                "content": "Resume de conversation mis a jour pour garder le contexte.",
+            }
+        )
     if hasattr(st, "rerun"):
         st.rerun()
     st.experimental_rerun()

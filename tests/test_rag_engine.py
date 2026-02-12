@@ -182,3 +182,4 @@ def test_append_history_triggers_summarization(monkeypatch) -> None:
 
     assert isinstance(chat.history[0], SystemMessage)
     assert "summary" in chat.history[0].content.lower()
+    assert chat.last_turn_summarized is True

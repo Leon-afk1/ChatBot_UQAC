@@ -54,11 +54,19 @@ Files: `src/chatbot_uqac/ingest.py`, `src/chatbot_uqac/rag/vectorstore.py`
 
 Files: `src/chatbot_uqac/rag/engine.py`, `src/chatbot_uqac/rag/routing.py`
 
-- The retriever fetches the most relevant chunks (default `k=4`).
-- When a score threshold is configured, only chunks with a score <= threshold
-  are kept (Chroma uses distance, so lower is better).
-- Retrieval helper logic is centralized in `routing.py` (`retrieve_docs`) and
-  reused by `RagChat` to keep behavior consistent.
+- Retrieval now uses a lightweight hybrid pipeline:
+  - Dense retrieval from Chroma.
+  - Lexical retrieval from SQLite (`documents`) using FTS5 when available,
+    otherwise a `LIKE` fallback.
+  - Fusion with Reciprocal Rank Fusion (RRF), then URL deduplication.
+- For dense retrieval, the system can use both:
+  - the original user question,
+  - and a rewritten standalone query for follow-up questions.
+- `RETRIEVAL_K` still controls the final number of chunks sent to generation.
+- When a score threshold is configured, dense candidates are filtered with
+  score <= threshold (Chroma distance: lower is better).
+- Retrieval helper logic is centralized in `routing.py` (`retrieve_docs`,
+  `retrieve_docs_hybrid`) and reused by the router.
 - A system prompt tells the model to use only the provided context.
 - The answer is produced by a "stuff" chain (all retrieved docs concatenated).
 - Sources are extracted from chunk metadata and printed in the UI.
@@ -80,10 +88,15 @@ Files: `src/chatbot_uqac/rag/routing.py`, `src/chatbot_uqac/rag/engine.py`
   - `no_docs`: return a fixed fallback when no relevant document is found.
 - Routing is hybrid: deterministic checks + LLM intent classification
   (`domain|memory|chitchat|unclear`) with confidence-based decisions.
+- For domain queries, the router rewrites follow-up questions into a
+  standalone retrieval query (`rewrite_retrieval_query`) before retrieval.
+- Domain retrieval uses `retrieve_docs_hybrid` (dense + lexical + RRF), which
+  improves robustness when semantic retrieval misses exact keywords.
 - This routing step improves behavior for social queries while preserving
   retrieval-first grounding for domain questions.
 - Routing observability is logged in `routing.py` (intent, confidence, selected
-  mode, and reason). Use `LOG_LEVEL=INFO` (or `DEBUG`) to inspect decisions.
+  mode, reason, query rewrite, and hybrid retrieval stats). Use
+  `LOG_LEVEL=INFO` (or `DEBUG`) to inspect decisions.
 
 ## Memory behavior
 
