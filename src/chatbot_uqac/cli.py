@@ -28,7 +28,8 @@ from chatbot_uqac.rag.vectorstore import build_embeddings, load_vectorstore
 
 def main() -> None:
     """Run an interactive chat loop in the terminal."""
-    setup_logging()
+    # Keep terminal chat readable: hide INFO/DEBUG logs in interactive CLI mode.
+    setup_logging(level="WARNING")
     console = Console()
     if not DB_PATH.exists() or not CHROMA_DIR.exists():
         # Avoid running the chat without an indexed corpus.
